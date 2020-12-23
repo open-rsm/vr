@@ -102,8 +102,8 @@ func newVR(cfg *Config) *VR {
 		heartbeatTimeout:  cfg.HeartbeatTimeout,
 	}
 	vr.rand = rand.New(rand.NewSource(int64(cfg.Num)))
-	for _, p := range cfg.Peers {
-		vr.windows[p] = &Window{Next: 1}
+	for _, peer := range cfg.Peers {
+		vr.windows[peer] = &Window{Next: 1}
 	}
 	if !hardStateCompare(hs, nilHardState) {
 		vr.loadHardState(hs)
@@ -121,31 +121,27 @@ func newVR(cfg *Config) *VR {
 	return vr
 }
 
-func (v *VR) existPrimary() bool {
-	return v.prim != None
-}
-
 func (v *VR) becomePrimary() {
 	if v.role == Backup {
-		panic("vr: invalid transition [backup -> primary]")
+		panic("vr: invalid transition [backup to primary]")
 	}
 	v.callFn = callPrimary
 	v.clockFn = v.clockHeartbeat
 	v.reset(v.ViewNum)
+	v.initEntry()
 	v.prim = v.replicaNum
 	v.role = Primary
 	v.status = Normal
-	v.appendEntry(proto.Entry{Data: nil})
 	log.Printf("vr: %x became primary at view-number %d", v.replicaNum, v.ViewNum)
 }
 
 func (v *VR) becomeReplica() {
 	if v.role == Primary {
-		panic("vr: invalid transition [primary -> replica]")
+		panic("vr: invalid transition [primary to replica]")
 	}
 	v.callFn = callReplica
-	v.reset(v.ViewNum + 1)
 	v.clockFn = v.clockTransition
+	v.reset(v.ViewNum + 1)
 	v.role = Replica
 	v.status = ViewChange
 	log.Printf("vr: %x became replica at view-number %d", v.replicaNum, v.ViewNum)
@@ -165,16 +161,12 @@ func (v *VR) becomeBackup(viewNum, prim uint64) {
 	}
 }
 
-func (v *VR) appendEntry(entries ...proto.Entry) {
-	lo := v.opLog.lastOpNum()
-	for i := range entries {
-		entries[i].ViewNum = v.ViewNum
-		entries[i].OpNum = lo + uint64(i) + 1
-	}
-	v.opLog.append(entries...)
-	v.windows[v.replicaNum].update(v.opLog.lastOpNum())
-	// TODO need check return value?
-	v.tryCommit()
+func (v *VR) initEntry() {
+	v.appendEntry(proto.Entry{Data: nil})
+}
+
+func (v *VR) existPrimary() bool {
+	return v.prim != None
 }
 
 func (v *VR) tryCommit() bool {
@@ -278,6 +270,9 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 	m := proto.Message{
 		To: to,
 	}
+	defer func() {
+		v.send(m)
+	}()
 	if v.tryAppliedState(window.Next) {
 		m.Type = proto.PrepareAppliedState
 		state, err := v.opLog.appliedState()
@@ -307,7 +302,6 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 			window.delaySet(v.heartbeatTimeout)
 		}
 	}
-	v.send(m)
 }
 
 func (v *VR) sendHeartbeat(to uint64) {
@@ -418,7 +412,6 @@ func startViewChange(v *VR, m *proto.Message) {
 		doViewChange(v, m)
 	}
 }
-
 
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
@@ -573,6 +566,18 @@ func callBackup(v *VR, m proto.Message) {
 		v.prim = m.From
 		v.handleAppend(m)
 	}
+}
+
+func (v *VR) appendEntry(entries ...proto.Entry) {
+	lo := v.opLog.lastOpNum()
+	for i := range entries {
+		entries[i].ViewNum = v.ViewNum
+		entries[i].OpNum = lo + uint64(i) + 1
+	}
+	v.opLog.append(entries...)
+	v.windows[v.replicaNum].update(v.opLog.lastOpNum())
+	// TODO need check return value?
+	v.tryCommit()
 }
 
 func (v *VR) handleAppend(m proto.Message) {
