@@ -12,9 +12,12 @@ VR is a very important distributed consensus protocol. Its flexibility is better
 
 ## Feature
 This library is the minimum viable product implementation of the replication state machine and does not contain other modules, such as network transmission, log storage, etc. The advantage of such a high degree of decoupling is that users can customize the required modules according to their own needs, and this library focuses on the research of the distributed protocol itself. You can easily integrate it into your system to realize the core and key links from a single machine to a distributed system.
-1. Node changes, with small probabilistic fluctuations.
-2. The logic can be changed externally.
-3. There is a clock oscillating device inside to ensure the same pace of replication nodes.
+1. Not require any use of disk; instead it uses replicated state to provide persistence.
+2. Replica pre-election strategy, after the primary node goes down, all other nodes reach a consensus in advance before the election.
+3. Allows the membership of the replica group to change.
+4. Node changes, with small probabilistic fluctuations.
+5. The logic can be changed externally.
+6. There is a clock oscillating device inside to ensure the same pace of replication nodes.
 
 ## Instructions
 It is an automaton. If you try to call it, you need to give it some messages. These messages may come from the primary replicator or the backup replicator. Next, you need to wait, and the state machine will feed you some food. The organization of food is a four-tuple. This information is the core element that promotes the continuous movement of the automata.

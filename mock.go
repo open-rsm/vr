@@ -25,7 +25,7 @@ func (v *VR) handleMessages() []proto.Message {
 type mock struct {
 	nodes   map[uint64]Node
 	stores  map[uint64]*Store
-	removes map[route]float64
+	routers map[route]float64
 	ignores map[proto.MessageType]bool
 }
 
@@ -69,7 +69,7 @@ func newMock(nodes ...Node) *mock {
 	return &mock{
 		nodes:   peers,
 		stores:  stores,
-		removes: make(map[route]float64),
+		routers: make(map[route]float64),
 		ignores: make(map[proto.MessageType]bool),
 	}
 }
@@ -88,7 +88,7 @@ func (m *mock) peers(num uint64) *VR {
 }
 
 func (m *mock) delete(from, to uint64, percent float64) {
-	m.removes[route{from, to}] = percent
+	m.routers[route{from, to}] = percent
 }
 
 func (m *mock) cover(one, other uint64) {
@@ -111,7 +111,7 @@ func (m *mock) ignore(mt proto.MessageType) {
 }
 
 func (m *mock) reset() {
-	m.removes = make(map[route]float64)
+	m.routers = make(map[route]float64)
 	m.ignores = make(map[proto.MessageType]bool)
 }
 
@@ -126,7 +126,7 @@ func (m *mock) filter(msgs []proto.Message) []proto.Message {
 			// change never go over the mock, so don'm delete them but panic
 			panic("unexpected change")
 		default:
-			drop := m.removes[route{msg.From, msg.To}]
+			drop := m.routers[route{msg.From, msg.To}]
 			if n := rand.Float64(); n < drop {
 				continue
 			}

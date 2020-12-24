@@ -28,7 +28,7 @@ func TestPrimaryDeterminesLogOrder(t *testing.T) {
 // Proof: section 4.1
 // Replicas only process normal protocol messages containing
 // a view-number that matches the view-number they know.
-// If the sender is behind, the receiver removes the message.
+// If the sender is behind, the receiver routers the message.
 func TestSenderBehindDropsMessage(t *testing.T) {
 	roles := []role{Replica, Primary, Backup}
 	for _, role := range roles {
