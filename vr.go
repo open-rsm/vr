@@ -8,22 +8,23 @@ import (
 	"sort"
 	"strings"
 	"github.com/open-rsm/spec/proto"
+	"time"
 )
 
 const None uint64 = 0
 const noLimit = math.MaxUint64
 
-// role type represents the current role of a replica in a cluster.
+// status type represents the current status of a replica in a cluster.
 type status uint64
 
-// replica role code
+// status code
 const (
 	Normal     status = iota
 	ViewChange
 	Recovering
 )
 
-// role name
+// status name
 var statusName = [...]string{"Normal", "ViewChange", "Recovering"}
 
 // role type represents the current role of a replica in a cluster.
@@ -31,7 +32,7 @@ type role uint64
 
 // role code
 const (
-	Replica = iota
+	Replica role = iota
 	Primary
 	Backup
 )
@@ -39,27 +40,42 @@ const (
 // role name
 var roleName = [...]string{"Replica", "Primary", "Backup"}
 
+
+// view change phrases
 const (
 	Change          = iota
 	StartViewChange
 	DoViewChange
 )
 
+// view stamped replication configure
 type Config struct {
-	Num               uint64
-	Peers             []uint64
-	TransitionTimeout int
-	HeartbeatTimeout  int
-	Store             *Store
-	AppliedNum        uint64
+	Num               uint64         // replica number, from 1 start
+	Peers             []uint64       // all the nodes in a replication group, include self
+	Store             *Store         // state machine storage models
+	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
+	HeartbeatTimeout  time.Duration  // maximum waiting time (ms) for backups
+	AppliedNum        uint64         // where the log has been applied ?
 }
 
+// configure check
 func (c *Config) validate() error {
+	if c.Store == nil {
+		return fmt.Errorf("vr: store is not initialized in config")
+	}
+	if len(c.Peers) < 1 {
+		return fmt.Errorf("vr: there are no available nodes in the replication group")
+	}
+	if c.TransitionTimeout > time.Second || c.HeartbeatTimeout > time.Second {
+		return fmt.Errorf("vr: the timeout is too large")
+	}
 	return nil
 }
 
+// protocol control models for VR
 type VR struct {
 	proto.HardState
+
 	replicaNum        uint64
 	seq               uint64
 	opLog             *opLog
@@ -98,8 +114,8 @@ func newVR(cfg *Config) *VR {
 		opLog:             opLog,
 		windows:           make(map[uint64]*Window),
 		HardState:         hs,
-		transitionTimeout: cfg.TransitionTimeout,
-		heartbeatTimeout:  cfg.HeartbeatTimeout,
+		transitionTimeout: int(cfg.TransitionTimeout),
+		heartbeatTimeout:  int(cfg.HeartbeatTimeout),
 	}
 	vr.rand = rand.New(rand.NewSource(int64(cfg.Num)))
 	for _, peer := range cfg.Peers {
