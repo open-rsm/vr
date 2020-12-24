@@ -5,10 +5,10 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"time"
 	"sort"
 	"strings"
 	"github.com/open-rsm/spec/proto"
-	"time"
 )
 
 const None uint64 = 0

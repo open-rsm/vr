@@ -81,62 +81,6 @@ func TestSingleReplicaCommit(t *testing.T) {
 	}
 }
 
-func TestMultipleReplicasChange(t *testing.T) {
-	t.Skip()
-	makeConfig := func(num uint64) *Config {
-		return &Config{
-			Num:               num,
-			Peers:             []uint64{replicaA, replicaB, replicaC},
-			TransitionTimeout: 10,
-			HeartbeatTimeout:  1,
-			Store:             NewStore(),
-			AppliedNum:        0,
-		}
-	}
-	a := newVR(makeConfig(replicaA))
-	b := newVR(makeConfig(replicaB))
-	c := newVR(makeConfig(replicaC))
-	m := newMock(a, b, c)
-	m.cover(replicaA, replicaC)
-	m.trigger(changeMessage(replicaA, replicaA))
-	m.trigger(changeMessage(replicaC, replicaC))
-	m.reset()
-	m.trigger(changeMessage(replicaC, replicaC))
-
-	ol := &opLog{
-		store:     &Store{entries: []proto.Entry{{}, proto.Entry{Data: nil, ViewNum: 1, OpNum: 1}}},
-		commitNum: 1,
-		unsafe:    unsafe{offset: 2},
-	}
-	cases := []struct {
-		vr      *VR
-		role    role
-		viewNum uint64
-		log     *opLog
-	}{
-		{a, Backup, 2, ol},
-		{b, Backup, 2, ol},
-		{c, Backup, 2, newOpLog(NewStore())},
-	}
-	for i, test := range cases {
-		if r := test.vr.role; r != test.role {
-			t.Errorf("#%d: role = %s, expected %s", i, roleName[r], roleName[test.role])
-		}
-		if vn := test.vr.ViewNum; vn != test.viewNum {
-			t.Errorf("#%d: view-number = %d, expected %d", i, vn, test.viewNum)
-		}
-		base := stringOpLog(test.log)
-		if peer, ok := m.nodes[1+uint64(i)].(*VR); ok {
-			sol := stringOpLog(peer.opLog)
-			if rv := diff(base, sol); rv != "" {
-				t.Errorf("#%d: diff:\n%s", i, rv)
-			}
-		} else {
-			t.Logf("#%d: empty oplog", i)
-		}
-	}
-}
-
 func TestLogReplication(t *testing.T) {
 	cases := []struct {
 		*mock
@@ -353,8 +297,8 @@ func TestHandleMessagePrepare(t *testing.T) {
 		expCommitNum uint64
 		expIgnore    bool
 	}{
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 2, CommitNum: 3},2,0,true}, // prev opLog miss offset
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 3, CommitNum: 3},2,0,true}, // prev opLog non-exist
+		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 2, CommitNum: 3},2,0,true},
+		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 3, CommitNum: 3},2,0,true},
 		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 1, OpNum: 1, CommitNum: 1},2,1,false},
 		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 0, OpNum: 0, CommitNum: 1, Entries: []proto.Entry{{OpNum: 1, ViewNum: 2}}},1, 1,false},
 		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 2, OpNum: 2, CommitNum: 3, Entries: []proto.Entry{{OpNum: 3, ViewNum: 2}, {OpNum: 4, ViewNum: 2}}},4, 3, false},
@@ -388,11 +332,9 @@ func TestHandleMessagePrepare(t *testing.T) {
 		if len(m) != 1 {
 			t.Fatalf("#%d: message = nil, expected 1", i)
 		}
-		/*
-		if m[0].Ignore != test.expIgnore {
-			t.Errorf("#%d: ignore = %v, expected %v", i, m[0].Ignore, test.expIgnore)
-		}
-		*/
+		//if m[0].Ignore != test.expIgnore {
+		//	t.Errorf("#%d: ignore = %v, expected %v", i, m[0].Ignore, test.expIgnore)
+		//}
 	}
 }
 
@@ -403,7 +345,7 @@ func TestHandleHeartbeat(t *testing.T) {
 		expCommitNum uint64
 	}{
 		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, CommitNum: commitNum + 1}, commitNum + 1},
-		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, CommitNum: commitNum - 1}, commitNum}, // do not decrease commitNum
+		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, CommitNum: commitNum - 1}, commitNum},
 	}
 	for i, test := range cases {
 		store := NewStore()
@@ -542,76 +484,6 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 	}
 }
 
-func TestReceiveMessageStartViewChange(t *testing.T) {
-	t.Skip()
-	cases := []struct {
-		role      role
-		opNum     uint64
-		viewNum   uint64
-		pending   uint64
-		expIgnore bool
-	}{
-		{Backup, 0, 0, None, true},
-		{Backup, 0, 1, None, true},
-		{Backup, 0, 2, None, true},
-		{Backup, 0, 3, None, false},
-
-		{Backup, 1, 0, None, true},
-		{Backup, 1, 1, None, true},
-		{Backup, 1, 2, None, true},
-		{Backup, 1, 3, None, false},
-
-		{Backup, 2, 0, None, true},
-		{Backup, 2, 1, None, true},
-		{Backup, 2, 2, None, false},
-		{Backup, 2, 3, None, false},
-
-		{Backup, 3, 0, None, true},
-		{Backup, 3, 1, None, true},
-		{Backup, 3, 2, None, false},
-		{Backup, 3, 3, None, false},
-
-		{Backup, 3, 2, 2, false},
-		{Backup, 3, 2, 1, true},
-
-		{Primary, 3, 3, 1, true},
-		{Replica, 3, 3, 1, true},
-	}
-	for i, test := range cases {
-		vr := newVR(&Config{
-			Num:               1,
-			Peers:             []uint64{1},
-			TransitionTimeout: 10,
-			HeartbeatTimeout:  1,
-			Store:             NewStore(),
-			AppliedNum:        0,
-		})
-		vr.role = test.role
-		switch test.role {
-		case Backup:
-			vr.callFn = callBackup
-		case Replica:
-			vr.callFn = callReplica
-		case Primary:
-			vr.callFn = callPrimary
-		}
-		vr.HardState = proto.HardState{}
-		vr.opLog = &opLog{
-			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 2}, {OpNum: 2, ViewNum: 2}}},
-			unsafe: unsafe{offset: 3},
-		}
-		vr.Call(proto.Message{Type: proto.Change, From: replicaB, OpNum: test.opNum, ViewNum: test.viewNum})
-		msgs := vr.handleMessages()
-		if l := len(msgs); l != 1 {
-			t.Fatalf("#%d: len(messages) = %d, expected 1", i, l)
-			continue
-		}
-		if v := msgs[0].Ignore; v != test.expIgnore {
-			t.Errorf("#%d, message ignore = %v, expected %v", i, v, test.expIgnore)
-		}
-	}
-}
-
 func TestStateTransition(t *testing.T) {
 	cases := []struct {
 		from       role
@@ -732,10 +604,10 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		expOpNum     uint64
 		expCommitNum uint64
 	}{
-		{3,true,0,3,0,0,0},  // safe resp; no replies
-		{2,true,0,2,1,1,0},  // denied resp; primary does not commit-number; decrease next and trigger probing msg
-		{2,false,2,4,2,2,2}, // accept resp; primary commits; broadcast with commit-number op-number
-		{0,false,0,3,0,0,0}, // ignore heartbeat replies
+		{3,true,0,3,0,0,0},
+		{2,true,0,2,1,1,0},
+		{2,false,2,4,2,2,2},
+		{0,false,0,3,0,0,0},
 	}
 	for i, test := range cases {
 		vr := newVR(&Config{
@@ -924,9 +796,9 @@ func TestRaising(t *testing.T) {
 		r := newVR(&Config{
 			id,
 			test.peers,
+			NewStore(),
 			5,
 			1,
-			NewStore(),
 			0,
 		})
 		if rv := r.raising(); rv != test.expProm {
@@ -971,10 +843,10 @@ func TestWindowUpdate(t *testing.T) {
 		expOffset uint64
 		expNext   uint64
 	}{
-		{prevOffset - 1,prevOffset,prevNext},         // do not decrease offset, next
-		{prevOffset,prevOffset,prevNext},             // do not decrease next
-		{prevOffset + 1,prevOffset + 1,prevNext},     // increase offset, do not decrease next
-		{prevOffset + 2,prevOffset + 2,prevNext + 1}, // increase offset, next
+		{prevOffset - 1,prevOffset,prevNext},
+		{prevOffset,prevOffset,prevNext},
+		{prevOffset + 1,prevOffset + 1,prevNext},
+		{prevOffset + 2,prevOffset + 2,prevNext + 1},
 	}
 	for i, test := range cases {
 		s := &Window{
@@ -1150,43 +1022,6 @@ func TestCommitWithoutNewViewNumEntry(t *testing.T) {
 	}
 }
 
-func TestReplicaConcede(t *testing.T) {
-	t.Skip()
-	m := newMock(node, node, node)
-	m.shield(replicaA)
-	m.trigger(changeMessage(replicaA, replicaA))
-	m.trigger(changeMessage(replicaC, replicaC))
-	m.reset()
-	m.trigger(heartbeatMessage(replicaC, replicaC))
-	data := []byte("backup")
-	m.trigger(proto.Message{From: replicaC, To: replicaC, Type: proto.Request, Entries: []proto.Entry{{Data: data}}})
-	m.trigger(heartbeatMessage(replicaC, replicaC))
-	vr := m.peers(replicaA)
-	if r := vr.role; r != Backup {
-		t.Errorf("role = %s, expected %s", roleName[r], roleName[Backup])
-	}
-	if vn := vr.ViewNum; vn != 1 {
-		t.Errorf("view-number = %d, expected %d", vn, 1)
-	}
-	expectedLog := stringOpLog(&opLog{
-		store: &Store{
-			entries: []proto.Entry{{}, {Data: nil, ViewNum: 1, OpNum: 1}, {ViewNum: 1, OpNum: 2, Data: data}},
-		},
-		unsafe: unsafe{offset: 3},
-		commitNum: 2,
-	})
-	for i, node := range m.nodes {
-		if vr, ok := node.(*VR); ok {
-			l := stringOpLog(vr.opLog)
-			if rv := diff(expectedLog, l); rv != "" {
-				t.Errorf("#%d: diff:\n%s", i, rv)
-			}
-		} else {
-			t.Logf("#%d: empty opLog", i)
-		}
-	}
-}
-
 func TestLateMessages(t *testing.T) {
 	m := newMock(node, node, node)
 	m.trigger(changeMessage(replicaA, replicaA))
@@ -1218,7 +1053,7 @@ func TestLateMessages(t *testing.T) {
 	}
 }
 
-func TestSlowReplicaRestore(t *testing.T) {
+func TestLazyReplicaRestore(t *testing.T) {
 	m := newMock(node, node, node)
 	m.trigger(changeMessage(replicaA, replicaA))
 	m.shield(replicaC)
