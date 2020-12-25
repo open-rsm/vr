@@ -16,7 +16,7 @@ type Status struct {
 }
 
 func getStatus(vr *VR) Status {
-	s := Status{ID: vr.replicaNum}
+	s := Status{ID: vr.num}
 	s.HardState = vr.HardState
 	s.SoftState = *vr.softState()
 	s.Applied = vr.opLog.appliedNum

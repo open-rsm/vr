@@ -6,62 +6,6 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
-func TestScanCollision(t *testing.T) {
-	presetEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
-	cases := []struct {
-		entries      []proto.Entry
-		expCollision uint64
-	}{
-		{[]proto.Entry{},0},
-		{[]proto.Entry{},0},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}},0},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}, 0},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 3}}, 0},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
-		{[]proto.Entry{{OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 4}, {OpNum: 2, ViewNum: 4}}, 1},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 1}, {OpNum: 3, ViewNum: 4}, {OpNum: 4, ViewNum: 4}}, 2},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 1}, {OpNum: 4, ViewNum: 2}, {OpNum: 5, ViewNum: 4}, {OpNum: 6, ViewNum: 4}},3},
-	}
-	for i, test := range cases {
-		log := newOpLog(NewStore())
-		log.append(presetEntries...)
-		collisionPos := log.scanCollision(test.entries)
-		if collisionPos != test.expCollision {
-			t.Errorf("#%d: collision = %d, expected %d", i, collisionPos, test.expCollision)
-		}
-	}
-}
-
-func TestIsUpToDate(t *testing.T) {
-	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
-	log := newOpLog(NewStore())
-	log.append(prevEntries...)
-	cases := []struct {
-		lastOpNum   uint64
-		viewNum     uint64
-		expUpToDate bool
-	}{
-		{log.lastOpNum() - 1,4,true},
-		{log.lastOpNum(), 4,true},
-		{log.lastOpNum() + 1,4,true},
-		{log.lastOpNum() - 1,2,false},
-		{log.lastOpNum(), 2,false},
-		{log.lastOpNum() + 1,2,false},
-		{log.lastOpNum() - 1,3,false},
-		{log.lastOpNum(),3,true},
-		{log.lastOpNum() + 1,3,true},
-	}
-	for i, test := range cases {
-		rv := log.isUpToDate(test.lastOpNum, test.viewNum)
-		if rv != test.expUpToDate {
-			t.Errorf("#%d: up to date = %v, expected %v", i, rv, test.expUpToDate)
-		}
-	}
-}
-
 func TestAppend(t *testing.T) {
 	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}}
 	cases := []struct {
@@ -92,7 +36,7 @@ func TestAppend(t *testing.T) {
 	}
 }
 
-func TestLogTryAppend(t *testing.T) {
+func TestTryAppend(t *testing.T) {
 	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
 	lastOpNum := uint64(3)
 	lastViewNum := uint64(3)
@@ -151,7 +95,6 @@ func TestLogTryAppend(t *testing.T) {
 			lastViewNum,lastOpNum, lastOpNum + 2, []proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}, {OpNum: lastOpNum + 2, ViewNum: 4}},
 			lastOpNum + 2,true, lastOpNum + 2, false,
 		},
-		// match with the the entry in the middle
 		{
 			lastViewNum - 1,lastOpNum - 1,lastOpNum,[]proto.Entry{{OpNum: lastOpNum, ViewNum: 4}},
 			lastOpNum,true,lastOpNum,false,
@@ -170,9 +113,9 @@ func TestLogTryAppend(t *testing.T) {
 		},
 	}
 	for i, test := range cases {
-		log := newOpLog(NewStore())
-		log.append(prevEntries...)
-		log.commitNum = commitNum
+		opLog := newOpLog(NewStore())
+		opLog.append(prevEntries...)
+		opLog.commitNum = commitNum
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -181,8 +124,8 @@ func TestLogTryAppend(t *testing.T) {
 					}
 				}
 			}()
-			rvLastOpNum, rvAppend := log.tryAppend(test.opNum, test.logViewNum, test.commitNum, test.entries...)
-			vCommitNum := log.commitNum
+			rvLastOpNum, rvAppend := opLog.tryAppend(test.opNum, test.logViewNum, test.commitNum, test.entries...)
+			vCommitNum := opLog.commitNum
 			if rvLastOpNum != test.expLastOpNum {
 				t.Errorf("#%d: last op-number = %d, expected %d", i, rvLastOpNum, test.expLastOpNum)
 			}
@@ -193,63 +136,12 @@ func TestLogTryAppend(t *testing.T) {
 				t.Errorf("#%d: commit-number = %d, expected %d", i, vCommitNum, test.expCommitNum)
 			}
 			if rvAppend && len(test.entries) != 0 {
-				rvEntries := log.seek(log.lastOpNum()-uint64(len(test.entries))+1, log.lastOpNum()+1)
+				rvEntries := opLog.seek(opLog.lastOpNum()-uint64(len(test.entries))+1, opLog.lastOpNum()+1)
 				if !reflect.DeepEqual(test.entries, rvEntries) {
 					t.Errorf("%d: appended entries = %v, expected %v", i, rvEntries, test.entries)
 				}
 			}
 		}()
-	}
-}
-
-func TestArchiveSideEffects(t *testing.T) {
-	var i uint64
-	lastOpNum := uint64(1000)
-	unsafeOpNum := uint64(750)
-	lastViewNum := lastOpNum
-	store := NewStore()
-	for i = 1; i <= unsafeOpNum; i++ {
-		store.Append([]proto.Entry{{ViewNum: uint64(i), OpNum: uint64(i)}})
-	}
-	opLog := newOpLog(store)
-	for i = unsafeOpNum; i < lastOpNum; i++ {
-		opLog.append(proto.Entry{ViewNum: uint64(i + 1), OpNum: uint64(i + 1)})
-	}
-	ok := opLog.tryCommit(lastOpNum, lastViewNum)
-	if !ok {
-		t.Fatalf("try commit returned false")
-	}
-	opLog.appliedTo(opLog.commitNum)
-	offset := uint64(500)
-	store.Archive(offset)
-	if opLog.lastOpNum() != lastOpNum {
-		t.Errorf("last op-number = %d, expected %d", opLog.lastOpNum(), lastOpNum)
-	}
-	for j := offset; j <= opLog.lastOpNum(); j++ {
-		if opLog.viewNum(j) != j {
-			t.Errorf("view-number(%d) = %d, expected %d", j, opLog.viewNum(j), j)
-		}
-	}
-	for j := offset; j <= opLog.lastOpNum(); j++ {
-		if !opLog.checkNum(j, j) {
-			t.Errorf("check view-number(%d) = false, expected true", j)
-		}
-	}
-	unsafeEntries := opLog.unsafeEntries()
-	if l := len(unsafeEntries); l != 250 {
-		t.Errorf("unsafe entries length = %d, expected = %d", l, 250)
-	}
-	if unsafeEntries[0].OpNum != 751 {
-		t.Errorf("op-number = %d, expected = %d", unsafeEntries[0].OpNum, 751)
-	}
-	prev := opLog.lastOpNum()
-	opLog.append(proto.Entry{OpNum: opLog.lastOpNum() + 1, ViewNum: opLog.lastOpNum() + 1})
-	if opLog.lastOpNum() != prev+1 {
-		t.Errorf("last op-number = %d, expected = %d", opLog.lastOpNum(), prev+1)
-	}
-	entries := opLog.entries(opLog.lastOpNum())
-	if len(entries) != 1 {
-		t.Errorf("entries length = %d, expected = %d", len(entries), 1)
 	}
 }
 
@@ -443,7 +335,58 @@ func TestArchive(t *testing.T) {
 	}
 }
 
-func TestLogRestore(t *testing.T) {
+func TestArchiveDisorder(t *testing.T) {
+	var i uint64
+	lastOpNum := uint64(1000)
+	unsafeOpNum := uint64(750)
+	lastViewNum := lastOpNum
+	store := NewStore()
+	for i = 1; i <= unsafeOpNum; i++ {
+		store.Append([]proto.Entry{{ViewNum: uint64(i), OpNum: uint64(i)}})
+	}
+	opLog := newOpLog(store)
+	for i = unsafeOpNum; i < lastOpNum; i++ {
+		opLog.append(proto.Entry{ViewNum: uint64(i + 1), OpNum: uint64(i + 1)})
+	}
+	ok := opLog.tryCommit(lastOpNum, lastViewNum)
+	if !ok {
+		t.Fatalf("try commit returned false")
+	}
+	opLog.appliedTo(opLog.commitNum)
+	offset := uint64(500)
+	store.Archive(offset)
+	if opLog.lastOpNum() != lastOpNum {
+		t.Errorf("last op-number = %d, expected %d", opLog.lastOpNum(), lastOpNum)
+	}
+	for j := offset; j <= opLog.lastOpNum(); j++ {
+		if opLog.viewNum(j) != j {
+			t.Errorf("view-number(%d) = %d, expected %d", j, opLog.viewNum(j), j)
+		}
+	}
+	for j := offset; j <= opLog.lastOpNum(); j++ {
+		if !opLog.checkNum(j, j) {
+			t.Errorf("check view-number(%d) = false, expected true", j)
+		}
+	}
+	unsafeEntries := opLog.unsafeEntries()
+	if l := len(unsafeEntries); l != 250 {
+		t.Errorf("unsafe entries length = %d, expected = %d", l, 250)
+	}
+	if unsafeEntries[0].OpNum != 751 {
+		t.Errorf("op-number = %d, expected = %d", unsafeEntries[0].OpNum, 751)
+	}
+	prev := opLog.lastOpNum()
+	opLog.append(proto.Entry{OpNum: opLog.lastOpNum() + 1, ViewNum: opLog.lastOpNum() + 1})
+	if opLog.lastOpNum() != prev+1 {
+		t.Errorf("last op-number = %d, expected = %d", opLog.lastOpNum(), prev+1)
+	}
+	entries := opLog.entries(opLog.lastOpNum())
+	if len(entries) != 1 {
+		t.Errorf("entries length = %d, expected = %d", len(entries), 1)
+	}
+}
+
+func TestLogStore(t *testing.T) {
 	opNum, viewNum := uint64(1000), uint64(1000)
 	applied := proto.Applied{OpNum: opNum, ViewNum: viewNum}
 	store := NewStore()
@@ -591,5 +534,61 @@ func TestSeek(t *testing.T) {
 				t.Errorf("#%d: from %d to %d = %v, expected %v", j, test.from, test.to, rv, test.exp)
 			}
 		}()
+	}
+}
+
+func TestScanCollision(t *testing.T) {
+	presetEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
+	cases := []struct {
+		entries      []proto.Entry
+		expCollision uint64
+	}{
+		{[]proto.Entry{},0},
+		{[]proto.Entry{},0},
+		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}},0},
+		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}, 0},
+		{[]proto.Entry{{OpNum: 3, ViewNum: 3}}, 0},
+		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
+		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
+		{[]proto.Entry{{OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
+		{[]proto.Entry{{OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
+		{[]proto.Entry{{OpNum: 1, ViewNum: 4}, {OpNum: 2, ViewNum: 4}}, 1},
+		{[]proto.Entry{{OpNum: 2, ViewNum: 1}, {OpNum: 3, ViewNum: 4}, {OpNum: 4, ViewNum: 4}}, 2},
+		{[]proto.Entry{{OpNum: 3, ViewNum: 1}, {OpNum: 4, ViewNum: 2}, {OpNum: 5, ViewNum: 4}, {OpNum: 6, ViewNum: 4}},3},
+	}
+	for i, test := range cases {
+		log := newOpLog(NewStore())
+		log.append(presetEntries...)
+		collisionPos := log.scanCollision(test.entries)
+		if collisionPos != test.expCollision {
+			t.Errorf("#%d: collision = %d, expected %d", i, collisionPos, test.expCollision)
+		}
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
+	opLog := newOpLog(NewStore())
+	opLog.append(prevEntries...)
+	cases := []struct {
+		lastOpNum   uint64
+		viewNum     uint64
+		expUpToDate bool
+	}{
+		{opLog.lastOpNum() - 1,4,true},
+		{opLog.lastOpNum(), 4,true},
+		{opLog.lastOpNum() + 1,4,true},
+		{opLog.lastOpNum() - 1,2,false},
+		{opLog.lastOpNum(), 2,false},
+		{opLog.lastOpNum() + 1,2,false},
+		{opLog.lastOpNum() - 1,3,false},
+		{opLog.lastOpNum(),3,true},
+		{opLog.lastOpNum() + 1,3,true},
+	}
+	for i, test := range cases {
+		rv := opLog.isUpToDate(test.lastOpNum, test.viewNum)
+		if rv != test.expUpToDate {
+			t.Errorf("#%d: up to date = %v, expected %v", i, rv, test.expUpToDate)
+		}
 	}
 }

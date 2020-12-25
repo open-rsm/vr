@@ -53,7 +53,7 @@ func newMock(nodes ...Node) *mock {
 			})
 			peers[num] = vr
 		case *VR:
-			v.replicaNum = num
+			v.num = num
 			v.windows = make(map[uint64]*Window)
 			for i := 0; i < size; i++ {
 				v.windows[replicas[i]] = &Window{}

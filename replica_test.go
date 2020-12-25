@@ -103,7 +103,7 @@ func TestReplicaRequest(t *testing.T) {
 	for {
 		f := <-r.Ready()
 		store.Append(f.PersistentEntries)
-		if f.SoftState.Prim == vr.replicaNum {
+		if f.SoftState.Prim == vr.num {
 			vr.callFn = appendCall
 			r.Advance()
 			break

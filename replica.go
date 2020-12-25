@@ -109,20 +109,20 @@ func (r *replica) run(vr *VR) {
 		if prim != vr.prim {
 			if vr.existPrimary() {
 				if prim == None {
-					log.Printf("vr.replica: %x change primary %x at view-number %d", vr.replicaNum, vr.prim, vr.ViewNum)
+					log.Printf("vr.replica: %x change primary %x at view-number %d", vr.num, vr.prim, vr.ViewNum)
 				} else {
-					log.Printf("vr.replica: %x changed primary from %x to %x at view-number %d", vr.replicaNum, prim, vr.prim, vr.ViewNum)
+					log.Printf("vr.replica: %x changed primary from %x to %x at view-number %d", vr.num, prim, vr.prim, vr.ViewNum)
 				}
 				requestC = r.requestC
 			} else {
-				log.Printf("vr.replica: %x faulty primary %x at view-number %d", vr.replicaNum, prim, vr.ViewNum)
+				log.Printf("vr.replica: %x faulty primary %x at view-number %d", vr.num, prim, vr.ViewNum)
 				requestC = nil
 			}
 			prim = vr.prim
 		}
 		select {
 		case m := <-requestC:
-			m.From = vr.replicaNum
+			m.From = vr.num
 			vr.Call(m)
 		case m := <-r.receiveC:
 			if _, ok := vr.windows[m.From]; ok || !IsReplyMessage(m) {
