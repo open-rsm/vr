@@ -1,6 +1,7 @@
 # Viewstamped Replication Library
 
 [![Build Status](https://travis-ci.com/open-rsm/vr.svg?branch=main)](https://travis-ci.com/open-rsm/vr)
+![CI](https://github.com/open-rsm/vr/workflows/CI/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/open-rsm/vr/badge.svg?branch=main)](https://coveralls.io/github/open-rsm/vr?branch=main)
 [![github](https://img.shields.io/badge/status-experiment-brightgreen.svg)](https://github.com/open-rsm/vr)
 [![license](https://img.shields.io/badge/license-Apache2-orange.svg?style=flat)](https://github.com/open-rsm/vr/blob/main/LICENSE)

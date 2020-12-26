@@ -34,7 +34,6 @@ function show_csv_report() {
 
 function push_to_coveralls() {
     echo "submit coverage statistics to coveralls.io"
-    # ignore failure to push - it happens
     $GOPATH/bin/goveralls -coverprofile="$profile" \
                           -service=travis-ci || true
 }
