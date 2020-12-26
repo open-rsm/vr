@@ -1,5 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -o errexit
 
-go test -v
+./test.sh
+./coverage.sh --coveralls
