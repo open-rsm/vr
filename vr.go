@@ -66,9 +66,9 @@ func (c *Config) validate() error {
 	if c.Store == nil {
 		return fmt.Errorf("vr: store is not initialized in config")
 	}
-	if len(c.Peers) < 1 {
-		return fmt.Errorf("vr: there are no available nodes in the replication group")
-	}
+	//if len(c.Peers) < 1 {
+	//	return fmt.Errorf("vr: there are no available nodes in the replication group")
+	//}
 	if c.AppliedNum < 0 {
 		return fmt.Errorf("vr: applied number cannot be smaller than zero")
 	}
@@ -113,7 +113,7 @@ func newVR(cfg *Config) *VR {
 	}
 	if len(rs.Replicas) > 0 {
 		if len(cfg.Peers) > 0 {
-			panic("vr: cannot specify both nodes and reconfiguration state nodes)")
+			log.Println("vr: found that there are replicas in the configuration file, and ignore the user's input")
 		}
 		cfg.Peers = rs.Replicas
 	}
