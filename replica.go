@@ -42,14 +42,14 @@ func StartReplica(c *Config, peers []Peer) Replicator {
 	for _, peer := range peers {
 		vr.createReplicator(peer.Num)
 	}
-	go rc.run(vr)
+	go rc.cycle(vr)
 	return rc
 }
 
 func RestartReplica(c *Config) Replicator {
 	rc := newReplica()
 	vr := newVR(c)
-	go rc.run(vr)
+	go rc.cycle(vr)
 	return rc
 }
 
@@ -81,7 +81,7 @@ func newReplica() *replica {
 	}
 }
 
-func (r *replica) run(vr *VR) {
+func (r *replica) cycle(vr *VR) {
 	var requestC chan proto.Message
 	var readyC chan Ready
 	var advanceC chan struct{}
@@ -89,23 +89,13 @@ func (r *replica) run(vr *VR) {
 	var prevUnsafeViewNum uint64
 	var needToSafe bool
 	var prevAppliedStateOpNum uint64
-	var f Ready
+	var rd Ready
 
 	prim := None
 	prevSoftState := vr.softState()
 	prevHardState := nilHardState
 
 	for {
-		if advanceC != nil {
-			readyC = nil
-		} else {
-			f = newReady(vr, prevSoftState, prevHardState)
-			if f.PreCheck() {
-				readyC = r.readyC
-			} else {
-				readyC = nil
-			}
-		}
 		if prim != vr.prim {
 			if vr.existPrimary() {
 				if prim == None {
@@ -120,6 +110,16 @@ func (r *replica) run(vr *VR) {
 			}
 			prim = vr.prim
 		}
+		if advanceC != nil {
+			readyC = nil
+		} else {
+			rd = newReady(vr, prevSoftState, prevHardState)
+			if rd.PreCheck() {
+				readyC = r.readyC
+			} else {
+				readyC = nil
+			}
+		}
 		select {
 		case m := <-requestC:
 			m.From = vr.num
@@ -132,20 +132,20 @@ func (r *replica) run(vr *VR) {
 			_ = rc
 		case <-r.clockC:
 			vr.clockFn()
-		case readyC <- f:
-			if n := len(f.PersistentEntries); n > 0 {
-				prevUnsafeOpNum = f.PersistentEntries[n-1].OpNum
-				prevUnsafeViewNum = f.PersistentEntries[n-1].ViewNum
+		case readyC <- rd:
+			if n := len(rd.PersistentEntries); n > 0 {
+				prevUnsafeOpNum = rd.PersistentEntries[n-1].OpNum
+				prevUnsafeViewNum = rd.PersistentEntries[n-1].ViewNum
 				needToSafe = true
 			}
-			if f.SoftState != nil {
-				prevSoftState = f.SoftState
+			if rd.SoftState != nil {
+				prevSoftState = rd.SoftState
 			}
-			if !IsInvalidHardState(f.HardState) {
-				prevHardState = f.HardState
+			if !IsInvalidHardState(rd.HardState) {
+				prevHardState = rd.HardState
 			}
-			if !IsInvalidAppliedState(f.AppliedState) {
-				prevAppliedStateOpNum = f.AppliedState.Applied.OpNum
+			if !IsInvalidAppliedState(rd.AppliedState) {
+				prevAppliedStateOpNum = rd.AppliedState.Applied.OpNum
 			}
 			vr.messages = nil
 			advanceC = r.advanceC

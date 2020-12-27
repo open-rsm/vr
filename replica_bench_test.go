@@ -19,7 +19,7 @@ func BenchmarkSingleReplica(b *testing.B) {
 		Store:             s,
 		AppliedNum:        0,
 	})
-	go r.run(vr)
+	go r.cycle(vr)
 	defer r.Stop()
 	r.Change(ctx)
 	for i := 0; i < b.N; i++ {

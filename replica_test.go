@@ -98,7 +98,7 @@ func TestReplicaRequest(t *testing.T) {
 		Store:             store,
 		AppliedNum:        0,
 	})
-	go r.run(vr)
+	go r.cycle(vr)
 	r.Change(context.TODO())
 	for {
 		f := <-r.Ready()
@@ -137,7 +137,7 @@ func TestReplicaClock(t *testing.T) {
 		Store:             bs,
 		AppliedNum:        0,
 	})
-	go r.run(vr)
+	go r.cycle(vr)
 	pulse := vr.pulse
 	r.Clock()
 	r.Stop()
@@ -160,7 +160,7 @@ func TestReplicaStop(t *testing.T) {
 	doneC := make(chan struct{})
 
 	go func() {
-		r.run(vr)
+		r.cycle(vr)
 		close(doneC)
 	}()
 
