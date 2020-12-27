@@ -131,7 +131,7 @@ func (r *replica) cycle(vr *VR) {
 		case rc := <-r.configurationC:
 			_ = rc
 		case <-r.clockC:
-			vr.clockFn()
+			vr.clock()
 		case readyC <- rd:
 			if n := len(rd.PersistentEntries); n > 0 {
 				prevUnsafeOpNum = rd.PersistentEntries[n-1].OpNum

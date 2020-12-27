@@ -40,7 +40,6 @@ const (
 // role name
 var roleName = [...]string{"Replica", "Primary", "Backup"}
 
-
 // view change phrases
 const (
 	Change          = iota
@@ -56,7 +55,7 @@ type Config struct {
 	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
 	HeartbeatTimeout  time.Duration  // maximum waiting time (ms) for backups
 	AppliedNum        uint64         // where the log has been applied ?
-	Picker            int            //
+	Picker            int            // replication selection strategy
 }
 
 // configure check
@@ -87,22 +86,22 @@ type VR struct {
 	// The key state of the replication group that has landed
 	proto.HardState
 
-	num               uint64                    // replica number, from 1 start
-	opLog             *opLog                    // used to manage operation logs
-	windows           map[uint64]*Window        // Control and manage the current synchronization progress
-	status            status                    // record the current replication group status
-	role              role                      // mark the current replica role
-	views             [3]map[uint64]bool        // count the views of each replica during the view change process
-	messages          []proto.Message           // temporarily store messages that need to be sent
-	prim              uint64                    // who is the primary ?
-	pulse             int                       // occurrence frequency
-	transitionTimeout int                       // maximum processing time for primary
-	heartbeatTimeout  int                       // maximum waiting time for backups
-	rand              *rand.Rand                // generate random seed
-	callFn            func(*VR, proto.Message)  // intervention automaton device through external events
-	clockFn           func()                    // drive clock oscillator
-	pick              pickFn                    //
-	seq               uint64                    // monotonically increasing number
+	num               uint64              // replica number, from 1 start
+	opLog             *opLog              // used to manage operation logs
+	windows           map[uint64]*Window  // Control and manage the current synchronization progress
+	status            status              // record the current replication group status
+	role              role                // mark the current replica role
+	views             [3]map[uint64]bool  // count the views of each replica during the view change process
+	messages          []proto.Message     // temporarily store messages that need to be sent
+	prim              uint64              // who is the primary ?
+	pulse             int                 // occurrence frequency
+	transitionTimeout int                 // maximum processing time for primary
+	heartbeatTimeout  int                 // maximum waiting time for backups
+	rand              *rand.Rand          // generate random seed
+	call              callFn              // intervention automaton device through external events
+	clock             clockFn             // drive clock oscillator
+	pick              pickFn              // selector for pre-selected primary replica node
+	seq               uint64              // monotonically increasing number
 }
 
 func newVR(cfg *Config) *VR {
@@ -153,8 +152,8 @@ func (v *VR) becomePrimary() {
 	if v.role == Backup {
 		panic("vr: invalid transition [backup to primary]")
 	}
-	v.callFn = callPrimary
-	v.clockFn = v.clockHeartbeat
+	v.call = callPrimary
+	v.clock = v.clockHeartbeat
 	v.reset(v.ViewNum)
 	v.initEntry()
 	v.prim = v.num
@@ -167,8 +166,8 @@ func (v *VR) becomeReplica() {
 	if v.role == Primary {
 		panic("vr: invalid transition [primary to replica]")
 	}
-	v.callFn = callReplica
-	v.clockFn = v.clockTransition
+	v.call = callReplica
+	v.clock = v.clockTransition
 	v.reset(v.ViewNum + 1)
 	v.role = Replica
 	v.status = ViewChange
@@ -176,8 +175,8 @@ func (v *VR) becomeReplica() {
 }
 
 func (v *VR) becomeBackup(viewNum, prim uint64) {
-	v.callFn = callBackup
-	v.clockFn = v.clockTransition
+	v.call = callBackup
+	v.clock = v.clockTransition
 	v.reset(viewNum)
 	v.prim = prim
 	v.role = Backup
@@ -250,7 +249,7 @@ func (v *VR) Call(m proto.Message) error {
 			v.num, v.ViewNum, m.Type, m.To, m.ViewNum)
 		return nil
 	}
-	v.callFn(v, m)
+	v.call(v, m)
 	v.CommitNum = v.opLog.commitNum
 	return nil
 }
@@ -349,6 +348,8 @@ func (v *VR) fallback(m proto.Message) {
 func (v *VR) tryAppliedState(num uint64) bool {
 	return num < v.opLog.startOpNum()
 }
+
+type clockFn func()
 
 func (v *VR) clockTransition() {
 	if !v.raising() {
@@ -466,6 +467,8 @@ func doViewChange(v *VR, m *proto.Message) {
 		return
 	}
 }
+
+type callFn func(*VR, proto.Message)
 
 func callPrimary(v *VR, m proto.Message) {
 	switch m.Type {

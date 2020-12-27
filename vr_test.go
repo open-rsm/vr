@@ -282,7 +282,7 @@ func TestCallIgnoreLateViewNumMessage(t *testing.T) {
 		Store:             NewStore(),
 		AppliedNum:        0,
 	})
-	vr.callFn = fakeCall
+	vr.call = fakeCall
 	vr.ViewNum = 2
 	vr.Call(proto.Message{Type: proto.Prepare, ViewNum: vr.ViewNum - 1})
 	if called == true {
@@ -731,11 +731,11 @@ func TestReceiveMessageHeartbeat(t *testing.T) {
 		vr.role = test.role
 		switch test.role {
 		case Backup:
-			vr.callFn = callBackup
+			vr.call = callBackup
 		case Replica:
-			vr.callFn = callReplica
+			vr.call = callReplica
 		case Primary:
-			vr.callFn = callPrimary
+			vr.call = callPrimary
 		}
 		vr.Call(proto.Message{From: 1, To: 1, Type: proto.Heartbeat})
 		msgs := vr.handleMessages()
