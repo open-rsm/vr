@@ -782,7 +782,7 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 }
 
 func TestRaising(t *testing.T) {
-	id := uint64(1)
+	num := uint64(1)
 	cases := []struct {
 		peers   []uint64
 		expProm bool
@@ -794,12 +794,13 @@ func TestRaising(t *testing.T) {
 	}
 	for i, test := range cases {
 		r := newVR(&Config{
-			id,
+			num,
 			test.peers,
 			NewStore(),
 			5,
 			1,
 			0,
+			RoundRobin,
 		})
 		if rv := r.raising(); rv != test.expProm {
 			t.Errorf("#%d: raising = %v, expected %v", i, rv, test.expProm)

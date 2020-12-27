@@ -56,6 +56,7 @@ type Config struct {
 	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
 	HeartbeatTimeout  time.Duration  // maximum waiting time (ms) for backups
 	AppliedNum        uint64         // where the log has been applied ?
+	Picker            int            //
 }
 
 // configure check
@@ -100,6 +101,7 @@ type VR struct {
 	rand              *rand.Rand                // generate random seed
 	callFn            func(*VR, proto.Message)  // intervention automaton device through external events
 	clockFn           func()                    // drive clock oscillator
+	pick              pickFn                    //
 	seq               uint64                    // monotonically increasing number
 }
 
@@ -126,6 +128,7 @@ func newVR(cfg *Config) *VR {
 		transitionTimeout: int(cfg.TransitionTimeout),
 		heartbeatTimeout:  int(cfg.HeartbeatTimeout),
 	}
+	vr.pick = pickers[cfg.Picker]
 	vr.rand = rand.New(rand.NewSource(int64(cfg.Num)))
 	for _, peer := range cfg.Peers {
 		vr.windows[peer] = &Window{Next: 1}
@@ -372,13 +375,6 @@ func (v *VR) raising() bool {
 	return ok
 }
 
-func (v *VR) pick() uint64 {
-	if n := v.ViewNum % uint64(len(v.windows)); n != 0 {
-		return n
-	}
-	return 1
-}
-
 func (v *VR) broadcastAppend() {
 	for num := range v.windows {
 		if num == v.num {
@@ -441,7 +437,7 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.pick(); num != v.num {
+	if num := v.pick(v.ViewNum, v.windows, nil); num != v.num {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, windows: %d",
 				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum, len(v.windows))
 		v.send(proto.Message{From: v.num, To: num, Type: proto.DoViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
