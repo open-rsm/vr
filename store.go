@@ -12,21 +12,18 @@ var ErrArchived = errors.New("access op-number is not reached due to archive")
 var ErrOutOfBounds = errors.New("out of bounds")
 var ErrUnavailable = errors.New("requested entry at op-number is unavailable")
 
+// storage models of view stamped replication
 type Store struct {
 	sync.Mutex
-	hardState    proto.HardState
-	appliedState proto.AppliedState
-	entries      []proto.Entry
+	hardState    proto.HardState     //
+	appliedState proto.AppliedState  //
+	entries      []proto.Entry       //
 }
 
 func NewStore() *Store {
 	return &Store{
 		entries: make([]proto.Entry, 1),
 	}
-}
-
-func (s *Store) InitState() (proto.HardState, proto.ConfigurationState, error) {
-	return s.hardState, proto.ConfigurationState{}, nil
 }
 
 func (s *Store) SetHardState(hs proto.HardState) error {
@@ -40,6 +37,10 @@ func (s *Store) SetAppliedState(as proto.AppliedState) error {
 	s.appliedState = as
 	s.entries = []proto.Entry{{ViewNum: as.Applied.ViewNum, OpNum: as.Applied.OpNum}}
 	return nil
+}
+
+func (s *Store) LoadState() (proto.HardState, proto.ConfigurationState, error) {
+	return s.hardState, proto.ConfigurationState{}, nil
 }
 
 func (s *Store) GetAppliedState() (proto.AppliedState, error) {
@@ -155,13 +156,13 @@ func (s *Store) Append(entries []proto.Entry) error {
 		entries = entries[start-entries[0].OpNum:]
 	}
 	offset := entries[0].OpNum - s.startOpNum()
-	switch {
-	case uint64(len(s.entries)) > offset:
+	if uint64(len(s.entries)) > offset {
 		s.entries = append([]proto.Entry{}, s.entries[:offset]...)
 		s.entries = append(s.entries, entries...)
-	case uint64(len(s.entries)) == offset:
+
+	} else if uint64(len(s.entries)) == offset {
 		s.entries = append(s.entries, entries...)
-	default:
+	} else {
 		log.Panicf("vr.stores: missing oplog entry [last: %d, append at: %d]",
 			s.appliedState.Applied.OpNum+uint64(len(s.entries)), entries[0].OpNum)
 	}

@@ -136,7 +136,7 @@ func TestTryAppend(t *testing.T) {
 				t.Errorf("#%d: commit-number = %d, expected %d", i, vCommitNum, test.expCommitNum)
 			}
 			if rvAppend && len(test.entries) != 0 {
-				rvEntries := opLog.seek(opLog.lastOpNum()-uint64(len(test.entries))+1, opLog.lastOpNum()+1)
+				rvEntries := opLog.subset(opLog.lastOpNum()-uint64(len(test.entries))+1, opLog.lastOpNum()+1)
 				if !reflect.DeepEqual(test.entries, rvEntries) {
 					t.Errorf("%d: appended entries = %v, expected %v", i, rvEntries, test.entries)
 				}
@@ -438,7 +438,7 @@ func TestIsOutOfBounds(t *testing.T) {
 					}
 				}
 			}()
-			opLog.mustOutOfBoundsInspection(test.low, test.up)
+			opLog.mustInspectionOverflow(test.low, test.up)
 			if test.expPanic {
 				t.Errorf("%d: panic = %v, expected %v", i, false, true)
 			}
@@ -529,7 +529,7 @@ func TestSeek(t *testing.T) {
 					}
 				}
 			}()
-			rv := opLog.seek(test.from, test.to)
+			rv := opLog.subset(test.from, test.to)
 			if !reflect.DeepEqual(rv, test.exp) {
 				t.Errorf("#%d: from %d to %d = %v, expected %v", j, test.from, test.to, rv, test.exp)
 			}

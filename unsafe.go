@@ -11,6 +11,22 @@ type unsafe struct {
 	offset       uint64
 }
 
+func (u *unsafe) mustInspectionOverflow(low, up uint64) {
+	if low > up {
+		log.Panicf("vr.unsafe: invalid unsafe.subset %d > %d", low, up)
+	}
+	lower := u.offset
+	upper := lower + uint64(len(u.entries))
+	if low < lower || up > upper {
+		log.Panicf("vr.unsafe: unsafe.subset[%d,%d) out of bound [%d,%d]", low, up, lower, upper)
+	}
+}
+
+func (u *unsafe) seek(low uint64, up uint64) []proto.Entry {
+	u.mustInspectionOverflow(low, up)
+	return u.entries[low-u.offset : up-u.offset]
+}
+
 func (u *unsafe) tryGetStartOpNum() (uint64, bool) {
 	if as := u.appliedState; as != nil {
 		return as.Applied.OpNum + 1, true
@@ -83,21 +99,5 @@ func (u *unsafe) truncateAndAppend(entries []proto.Entry) {
 		log.Printf("vr.unsafe: truncate the unsafe entries to number %d", ahead)
 		u.entries = append([]proto.Entry{}, u.seek(u.offset, ahead+1)...)
 		u.entries = append(u.entries, entries...)
-	}
-}
-
-func (u *unsafe) seek(low uint64, up uint64) []proto.Entry {
-	u.mustOutOfBoundsInspection(low, up)
-	return u.entries[low-u.offset : up-u.offset]
-}
-
-func (u *unsafe) mustOutOfBoundsInspection(low, up uint64) {
-	if low > up {
-		log.Panicf("vr.unsafe: invalid unsafe.seek %d > %d", low, up)
-	}
-	lower := u.offset
-	upper := lower + uint64(len(u.entries))
-	if low < lower || up > upper {
-		log.Panicf("vr.unsafe: unsafe.seek[%d,%d) out of bound [%d,%d]", low, up, lower, upper)
 	}
 }

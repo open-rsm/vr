@@ -273,7 +273,7 @@ func TestSoftStateEqual(t *testing.T) {
 	}{
 		{&SoftState{}, true},
 		{&SoftState{Prim: 1}, false},
-		{&SoftState{VRRole: Primary}, false},
+		{&SoftState{Role: Primary}, false},
 	}
 	for i, test := range cases {
 		if rv := test.ss.equal(&SoftState{}); rv != test.expEqual {

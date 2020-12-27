@@ -240,12 +240,12 @@ func (r *replica) Stop() {
 }
 
 type SoftState struct {
-	Prim   uint64
-	VRRole role
+	Prim uint64
+	Role role
 }
 
 func (r *SoftState) equal(ss *SoftState) bool {
-	return r.Prim == ss.Prim && r.VRRole == ss.VRRole
+	return r.Prim == ss.Prim && r.Role == ss.Role
 }
 
 type Ready struct {

@@ -6,29 +6,35 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
+// provide the current status of the replication group
 type Status struct {
+	// temporary status syncing
 	SoftState
+	// persistent state
 	proto.HardState
 
-	ID      uint64
-	Applied uint64
-	Windows map[uint64]Window
+	Num        uint64             // current replica number
+	CommitNum  uint64             // logs that have been committed
+	AppliedNum uint64             // track the status that has been applied
+	Windows    map[uint64]Window  // peer's window control information, subject to primary
 }
 
+// build and package status
 func getStatus(vr *VR) Status {
-	s := Status{ID: vr.num}
+	s := Status{Num: vr.num}
 	s.HardState = vr.HardState
 	s.SoftState = *vr.softState()
-	s.Applied = vr.opLog.appliedNum
-	if s.VRRole == Primary {
+	s.AppliedNum = vr.opLog.appliedNum
+	if s.Role == Primary {
 		s.Windows = make(map[uint64]Window)
-		for id, window := range vr.windows {
-			s.Windows[id] = *window
+		for num, window := range vr.windows {
+			s.Windows[num] = *window
 		}
 	}
 	return s
 }
 
+// serialized status data
 func (s Status) String() string {
 	b, err := json.Marshal(&s)
 	if err != nil {

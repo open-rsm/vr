@@ -107,7 +107,7 @@ func newVR(cfg *Config) *VR {
 	if err := cfg.validate(); err != nil {
 		panic(fmt.Sprintf("vr: config validate error: %v", err))
 	}
-	hs, rs, err := cfg.Store.InitState()
+	hs, rs, err := cfg.Store.LoadState()
 	if err != nil {
 		panic(err)
 	}
@@ -645,7 +645,7 @@ func (v *VR) handleHeartbeat(m proto.Message) {
 }
 
 func (v *VR) softState() *SoftState {
-	return &SoftState{Prim: v.prim, VRRole: v.role}
+	return &SoftState{Prim: v.prim, Role: v.role}
 }
 
 func (v *VR) quorum() int {

@@ -6,13 +6,17 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
+// operation log manager for view stamped replication
 type opLog struct {
+	// has not been WAL
 	unsafe
-	store      *Store
-	commitNum  uint64
-	appliedNum uint64
+
+	store      *Store  // store handler
+	commitNum  uint64  // current committed location
+	appliedNum uint64  // logs that have been applied
 }
 
+// create and initialize an object handler to manage logs
 func newOpLog(store *Store) *opLog {
 	if store == nil {
 		log.Panic("vr.oplog: stores must not be nil")
@@ -32,6 +36,44 @@ func newOpLog(store *Store) *opLog {
 	}
 	opLog.offset = lastOpNum + 1
 	return opLog
+}
+
+// search part of log entries
+func (r *opLog) subset(low uint64, up uint64) []proto.Entry {
+	r.mustInspectionOverflow(low, up)
+	if low == up {
+		return nil
+	}
+	var entries []proto.Entry
+	if r.unsafe.offset > low {
+		storedEntries, err := r.store.Seek(low, min(up, r.unsafe.offset))
+		if err == ErrNotReached {
+			log.Panicf("vr.oplog: entries[%d:%d) is unavailable from stores", low, min(up, r.unsafe.offset))
+		} else if err != nil {
+			panic(err)
+		}
+		entries = storedEntries
+	}
+	if r.unsafe.offset < up {
+		unsafe := r.unsafe.seek(max(low, r.unsafe.offset), up)
+		if len(entries) > 0 {
+			entries = append([]proto.Entry{}, entries...)
+			entries = append(entries, unsafe...)
+		} else {
+			entries = unsafe
+		}
+	}
+	return entries
+}
+
+func (r *opLog) mustInspectionOverflow(low, up uint64) {
+	if low > up {
+		log.Panicf("vr.oplog: invalid subset %d > %d", low, up)
+	}
+	length := r.lastOpNum() - r.startOpNum() + 1
+	if low < r.startOpNum() || up > r.startOpNum()+length {
+		log.Panicf("vr.oplog: subset[%d,%d) out of bound [%d,%d]", low, up, r.startOpNum(), r.lastOpNum())
+	}
 }
 
 func (r *opLog) tryAppend(opNum, logNum, commitNum uint64, entries ...proto.Entry) (lastNewOpNum uint64, ok bool) {
@@ -86,7 +128,7 @@ func (r *opLog) unsafeEntries() []proto.Entry {
 func (r *opLog) safeEntries() (entries []proto.Entry) {
 	num := max(r.appliedNum+1, r.startOpNum())
 	if r.commitNum+1 > num {
-		return r.seek(num, r.commitNum+1)
+		return r.subset(num, r.commitNum+1)
 	}
 	return nil
 }
@@ -169,7 +211,7 @@ func (r *opLog) entries(num uint64) []proto.Entry {
 	if num > r.lastOpNum() {
 		return nil
 	}
-	return r.seek(num, r.lastOpNum()+1)
+	return r.subset(num, r.lastOpNum()+1)
 }
 
 func (r *opLog) totalEntries() []proto.Entry {
@@ -190,43 +232,6 @@ func (r *opLog) tryCommit(maxOpNum, viewNum uint64) bool {
 		return true
 	}
 	return false
-}
-
-func (r *opLog) seek(low uint64, up uint64) []proto.Entry {
-	r.mustOutOfBoundsInspection(low, up)
-	if low == up {
-		return nil
-	}
-	var entries []proto.Entry
-	if low < r.unsafe.offset {
-		storedEntries, err := r.store.Seek(low, min(up, r.unsafe.offset))
-		if err == ErrNotReached {
-			log.Panicf("vr.oplog: entries[%d:%d) is unavailable from stores", low, min(up, r.unsafe.offset))
-		} else if err != nil {
-			panic(err)
-		}
-		entries = storedEntries
-	}
-	if up > r.unsafe.offset {
-		unsafe := r.unsafe.seek(max(low, r.unsafe.offset), up)
-		if len(entries) > 0 {
-			entries = append([]proto.Entry{}, entries...)
-			entries = append(entries, unsafe...)
-		} else {
-			entries = unsafe
-		}
-	}
-	return entries
-}
-
-func (r *opLog) mustOutOfBoundsInspection(low, up uint64) {
-	if low > up {
-		log.Panicf("vr.oplog: invalid seek %d > %d", low, up)
-	}
-	length := r.lastOpNum() - r.startOpNum() + 1
-	if low < r.startOpNum() || up > r.startOpNum()+length {
-		log.Panicf("vr.oplog: seek[%d,%d) out of bound [%d,%d]", low, up, r.startOpNum(), r.lastOpNum())
-	}
 }
 
 func (r *opLog) recover(state proto.AppliedState) {

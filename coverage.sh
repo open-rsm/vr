@@ -14,12 +14,10 @@ mode=count
 function generate_cover_data() {
     rm -rf "$work_dir"
     mkdir "$work_dir"
-
     for pkg in "$@"; do
         f="$work_dir/$(echo $pkg | tr / -).cover"
         go test -covermode="$mode" -coverprofile="$f" "$pkg"
     done
-
     echo "mode: $mode" >"$profile"
     grep -h -v "^mode:" "$work_dir"/*.cover >>"$profile"
 }
@@ -34,8 +32,7 @@ function show_csv_report() {
 
 function push_to_coveralls() {
     echo "submit coverage statistics to coveralls.io"
-    $GOPATH/bin/goveralls -coverprofile="$profile" \
-                          -service=travis-ci || true
+    $GOPATH/bin/goveralls -coverprofile="$profile" -service=travis-ci || true
 }
 
 generate_cover_data $(go list ./...)
