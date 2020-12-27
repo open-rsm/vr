@@ -2,9 +2,16 @@ package vr
 
 import "fmt"
 
+// control and manage the current sync progress and status
+// for a replica
 type Window struct {
+	// the confirmed sync position of all nodes in the
+	// replication group
 	Ack   uint64
+	// if data sync is currently not possible, how long
+	// do I need to wait?
 	Delay int
+	// record the next location that needs to be sync
 	Next  uint64
 }
 

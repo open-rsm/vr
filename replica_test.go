@@ -246,7 +246,7 @@ func TestReplicaAdvance(t *testing.T) {
 		Store:             bs,
 		AppliedNum:        0,
 	},
-		[]Peer{{ID: 1}},
+		[]Peer{{Num: 1}},
 	)
 	r.Change(ctx)
 	<-r.Ready()

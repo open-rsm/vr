@@ -55,7 +55,7 @@ func (r *opLog) subset(low uint64, up uint64) []proto.Entry {
 		entries = storedEntries
 	}
 	if r.unsafe.offset < up {
-		unsafe := r.unsafe.seek(max(low, r.unsafe.offset), up)
+		unsafe := r.unsafe.subset(max(low, r.unsafe.offset), up)
 		if len(entries) > 0 {
 			entries = append([]proto.Entry{}, entries...)
 			entries = append(entries, unsafe...)

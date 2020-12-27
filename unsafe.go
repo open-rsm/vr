@@ -5,10 +5,12 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
+// used to manage the intermediate state that has not
+// yet been written to disk
 type unsafe struct {
-	appliedState *proto.AppliedState
-	entries      []proto.Entry
-	offset       uint64
+	offset       uint64               // the position of the last log currently loaded
+	entries      []proto.Entry        // temporary logs that have not been wal
+	appliedState *proto.AppliedState  // applied state handler
 }
 
 func (u *unsafe) mustInspectionOverflow(low, up uint64) {
@@ -22,9 +24,24 @@ func (u *unsafe) mustInspectionOverflow(low, up uint64) {
 	}
 }
 
-func (u *unsafe) seek(low uint64, up uint64) []proto.Entry {
+func (u *unsafe) subset(low uint64, up uint64) []proto.Entry {
 	u.mustInspectionOverflow(low, up)
 	return u.entries[low-u.offset : up-u.offset]
+}
+
+func (u *unsafe) truncateAndAppend(entries []proto.Entry) {
+	ahead := entries[0].OpNum - 1
+	if ahead == u.offset+uint64(len(u.entries))-1 {
+		u.entries = append(u.entries, entries...)
+	} else if ahead < u.offset {
+		log.Printf("vr.unsafe: replace the unsafe entries from number %d", ahead+1)
+		u.offset = ahead + 1
+		u.entries = entries
+	} else {
+		log.Printf("vr.unsafe: truncate the unsafe entries to number %d", ahead)
+		u.entries = append([]proto.Entry{}, u.subset(u.offset, ahead+1)...)
+		u.entries = append(u.entries, entries...)
+	}
 }
 
 func (u *unsafe) tryGetStartOpNum() (uint64, bool) {
@@ -85,19 +102,4 @@ func (u *unsafe) recover(state proto.AppliedState) {
 	u.entries = nil
 	u.offset = state.Applied.OpNum + 1
 	u.appliedState = &state
-}
-
-func (u *unsafe) truncateAndAppend(entries []proto.Entry) {
-	ahead := entries[0].OpNum - 1
-	if ahead == u.offset+uint64(len(u.entries))-1 {
-		u.entries = append(u.entries, entries...)
-	} else if ahead < u.offset {
-		log.Printf("vr.unsafe: replace the unsafe entries from number %d", ahead+1)
-		u.offset = ahead + 1
-		u.entries = entries
-	} else {
-		log.Printf("vr.unsafe: truncate the unsafe entries to number %d", ahead)
-		u.entries = append([]proto.Entry{}, u.seek(u.offset, ahead+1)...)
-		u.entries = append(u.entries, entries...)
-	}
 }
