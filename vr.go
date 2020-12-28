@@ -416,7 +416,6 @@ func startViewChange(v *VR, m *proto.Message) {
 	view := true
 	if m != nil {
 		num = m.From
-		view = !m.Ignore
 	}
 	views := v.collect(num, view, StartViewChange)
 	if views == 1 && !v.take(v.num, Change) {
@@ -451,7 +450,6 @@ func doViewChange(v *VR, m *proto.Message) {
 	view := true
 	if m != nil {
 		num = m.From
-		view = !m.Ignore
 	}
 	if v.quorums() == v.collect(num, view, DoViewChange) {
 		for num := range v.windows {
