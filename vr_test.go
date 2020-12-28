@@ -597,17 +597,14 @@ func TestAllServerCallDown(t *testing.T) {
 func TestPrimaryPrepareOk(t *testing.T) {
 	cases := []struct {
 		opNum        uint64
-		ignore       bool
 		expOffset    uint64
 		expNext      uint64
 		expMsgNum    int
 		expOpNum     uint64
 		expCommitNum uint64
 	}{
-		{3,true,0,3,0,0,0},
-		{2,true,0,2,1,1,0},
-		{2,false,2,4,2,2,2},
-		{0,false,0,3,0,0,0},
+		{2,2,4,2,2,2},
+		{0,0,3,0,0,0},
 	}
 	for i, test := range cases {
 		vr := newVR(&Config{
@@ -625,7 +622,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		vr.becomeReplica()
 		vr.becomePrimary()
 		vr.handleMessages()
-		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, OpNum: test.opNum, ViewNum: vr.ViewNum, Ignore: test.ignore, Note: test.opNum})
+		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
 		window := vr.windows[replicaB]
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
@@ -633,9 +630,111 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		if window.Next != test.expNext {
 			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
 		}
-
 		msgs := vr.handleMessages()
+		if len(msgs) != test.expMsgNum {
+			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
+		}
+		for j, msg := range msgs {
+			if msg.OpNum != test.expOpNum {
+				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.OpNum, test.expOpNum)
+			}
+			if msg.CommitNum != test.expCommitNum {
+				t.Errorf("#%d.%d commit-number = %d, expected %d", i, j, msg.CommitNum, test.expCommitNum)
+			}
+		}
+	}
+}
 
+func TestPrimaryRecovery(t *testing.T) {
+	cases := []struct {
+		opNum        uint64
+		Type         proto.MessageType
+		expOffset    uint64
+		expNext      uint64
+		expMsgNum    int
+		expOpNum     uint64
+		expCommitNum uint64
+	}{
+		{3,proto.Recovery,0,3,0,0,0},
+		{2,proto.Recovery,0,2,1,1,0},
+	}
+	for i, test := range cases {
+		vr := newVR(&Config{
+			Num:               replicaA,
+			Peers:             []uint64{replicaA, replicaB, replicaC},
+			TransitionTimeout: 10,
+			HeartbeatTimeout:  1,
+			Store:             NewStore(),
+			AppliedNum:        0,
+		})
+		vr.opLog = &opLog{
+			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}},
+			unsafe: unsafe{offset: 3},
+		}
+		vr.becomeReplica()
+		vr.becomePrimary()
+		vr.handleMessages()
+		vr.Call(proto.Message{From: replicaB, Type: test.Type, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
+		window := vr.windows[replicaB]
+		if window.Ack != test.expOffset {
+			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
+		}
+		if window.Next != test.expNext {
+			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
+		}
+		msgs := vr.handleMessages()
+		if len(msgs) != test.expMsgNum {
+			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
+		}
+		for j, msg := range msgs {
+			if msg.OpNum != test.expOpNum {
+				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.OpNum, test.expOpNum)
+			}
+			if msg.CommitNum != test.expCommitNum {
+				t.Errorf("#%d.%d commit-number = %d, expected %d", i, j, msg.CommitNum, test.expCommitNum)
+			}
+		}
+	}
+}
+
+func TestPrimaryGetState(t *testing.T) {
+	cases := []struct {
+		opNum        uint64
+		Type         proto.MessageType
+		expOffset    uint64
+		expNext      uint64
+		expMsgNum    int
+		expOpNum     uint64
+		expCommitNum uint64
+	}{
+		{3,proto.GetState,0,3,0,0,0},
+		{2,proto.GetState,0,2,1,1,0},
+	}
+	for i, test := range cases {
+		vr := newVR(&Config{
+			Num:               replicaA,
+			Peers:             []uint64{replicaA, replicaB, replicaC},
+			TransitionTimeout: 10,
+			HeartbeatTimeout:  1,
+			Store:             NewStore(),
+			AppliedNum:        0,
+		})
+		vr.opLog = &opLog{
+			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}},
+			unsafe: unsafe{offset: 3},
+		}
+		vr.becomeReplica()
+		vr.becomePrimary()
+		vr.handleMessages()
+		vr.Call(proto.Message{From: replicaB, Type: test.Type, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
+		window := vr.windows[replicaB]
+		if window.Ack != test.expOffset {
+			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
+		}
+		if window.Next != test.expNext {
+			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
+		}
+		msgs := vr.handleMessages()
 		if len(msgs) != test.expMsgNum {
 			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
 		}

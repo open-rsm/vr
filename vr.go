@@ -481,35 +481,27 @@ func callPrimary(v *VR, m proto.Message) {
 		v.appendEntry(m.Entries...)
 		v.broadcastAppend()
 	case proto.PrepareOk:
-		if m.Ignore {
-			log.Printf("vr: %x received prepare ok ignore(last-op-number: %d) from %x for op-number %d",
-				v.num, m.Note, m.From, m.OpNum)
-			if v.windows[m.From].tryDecTo(m.OpNum, m.Note) {
-				log.Printf("vr: %x decreased window of %x to [%s]", v.num, m.From, v.windows[m.From])
-				v.sendAppend(m.From)
-			}
-		} else {
-			delay := v.windows[m.From].needDelay()
-			fmt.Println("")
-			v.windows[m.From].update(m.OpNum)
-			if v.tryCommit() {
-				v.broadcastAppend()
-			} else if delay {
-				v.sendAppend(m.From)
-			}
+		delay := v.windows[m.From].needDelay()
+		fmt.Println("")
+		v.windows[m.From].update(m.OpNum)
+		if v.tryCommit() {
+			v.broadcastAppend()
+		} else if delay {
+			v.sendAppend(m.From)
 		}
 	case proto.CommitOk:
 		if v.windows[m.From].Ack < v.opLog.lastOpNum() {
 			v.sendAppend(m.From)
 		}
 	case proto.StartViewChange, proto.DoViewChange:
+		// ignore message
 		log.Printf("vr: %x [log-view-number: %d, op-number: %d] ignore %s from %x [op-number: %d] at view-number %d",
 			v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), m.Type, m.From, m.OpNum, m.ViewNum)
-		//v.send(proto.Message{To: m.From, Type: m.Type, Ignore: true})
 	case proto.StartView:
 		v.becomeBackup(v.ViewNum, m.From)
 		v.status = Normal
 	case proto.Recovery:
+		// TODO: verify the source
 		log.Printf("vr: %x received recovery (last-op-number: %d) from %x for op-number %d to recovery response",
 			v.num, m.X, m.From, m.OpNum)
 		if v.windows[m.From].tryDecTo(m.OpNum, m.Note) {
@@ -615,13 +607,13 @@ func (v *VR) handleAppend(m proto.Message) {
 			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.GetState, OpNum: m.OpNum, Note: v.opLog.lastOpNum()})
 	case Recovering:
+		// TODO: do load balancing to reduce the pressure on the primary
 		log.Printf("vr: %x recovering state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
 			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.Recovery, OpNum: m.OpNum, X: v.seq, Note: v.opLog.lastOpNum()})
 	default:
 		log.Printf("vr: %x [log-number: %d, op-number: %d] ignored prepare [log-number: %d, op-number: %d] from %x",
 			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
-		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: m.OpNum, Ignore: true, Note: v.opLog.lastOpNum()})
 	}
 }
 
