@@ -245,9 +245,7 @@ func TestReplicaAdvance(t *testing.T) {
 		HeartbeatTimeout:  1,
 		Store:             bs,
 		AppliedNum:        0,
-	},
-		[]Peer{{Num: 1}},
-	)
+	})
 	r.Change(ctx)
 	<-r.Ready()
 	r.Step(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("foo")}}})

@@ -15,9 +15,7 @@ func ExampleReplicator() {
 		HeartbeatTimeout:  0,
 		Store:             nil,
 		AppliedNum:        0,
-	},
-		nil,
-	)
+	})
 	var prev proto.HardState
 	for {
 		rd := <-replica.Ready()

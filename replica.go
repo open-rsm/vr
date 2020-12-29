@@ -17,11 +17,6 @@ type Option struct {
 	Filter func()
 }
 
-type Peer struct {
-	Num     uint64
-	Context []byte
-}
-
 type Replicator interface {
 	Advance()
 	Change(ctx context.Context) error
@@ -33,14 +28,14 @@ type Replicator interface {
 	Stop()
 }
 
-func StartReplica(c *Config, peers []Peer) Replicator {
+func StartReplica(c *Config) Replicator {
 	rc := newReplica()
 	vr := newVR(c)
-	vr.becomeBackup(1, None)
+	vr.becomeBackup(One, None)
 	vr.opLog.commitNum = vr.opLog.lastOpNum()
 	vr.CommitNum = vr.opLog.commitNum
-	for _, peer := range peers {
-		vr.createReplicator(peer.Num)
+	for _, num := range c.Peers {
+		vr.createReplicator(num)
 	}
 	go rc.cycle(vr)
 	return rc

@@ -11,7 +11,11 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
-const None uint64 = 0
+const (
+	None uint64 = iota
+	One
+)
+
 const noLimit = math.MaxUint64
 
 // status type represents the current status of a replica in a cluster.
@@ -347,8 +351,8 @@ func (v *VR) sendHeartbeat(to uint64) {
 	})
 }
 
-func (v *VR) fallback(m proto.Message) {
-	m.To = v.prim
+func (v *VR) sendto(m proto.Message, to uint64) {
+	m.To = to
 	v.send(m)
 }
 
@@ -556,7 +560,7 @@ func callBackup(v *VR, m proto.Message) {
 			log.Printf("vr: %x no primary (backup) at view-number %d; dropping request", v.num, v.ViewNum)
 			return
 		}
-		v.fallback(m)
+		v.sendto(m, v.prim)
 	case proto.Prepare:
 		v.pulse = 0
 		v.prim = m.From
