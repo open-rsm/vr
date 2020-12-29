@@ -888,7 +888,7 @@ func TestRaising(t *testing.T) {
 	}{
 		{[]uint64{replicaA},true},
 		{[]uint64{replicaA, replicaB, replicaC},true},
-		{[]uint64{},false},
+		{nil,false},
 		{[]uint64{replicaB, replicaC},false},
 	}
 	for i, test := range cases {

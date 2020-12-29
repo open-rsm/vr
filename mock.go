@@ -175,7 +175,7 @@ func entries(viewNums ...uint64) *VR {
 	}
 	vr := newVR(&Config{
 		Num:               1,
-		Peers:             []uint64{},
+		Peers:             nil,
 		TransitionTimeout: 5,
 		HeartbeatTimeout:  1,
 		Store:             NewStore(),

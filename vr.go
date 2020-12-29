@@ -66,9 +66,19 @@ func (c *Config) validate() error {
 	if c.Store == nil {
 		return fmt.Errorf("vr: store is not initialized in config")
 	}
-	//if len(c.Peers) < 1 {
-	//	return fmt.Errorf("vr: there are no available nodes in the replication group")
-	//}
+	cs, err := c.Store.LoadConfigurationState()
+	if err != nil {
+		return err
+	}
+	if len(cs.Replicas) > 0 {
+		if len(c.Peers) > 0 {
+			return fmt.Errorf("vr: found that there are replicas in the configuration file, and ignore the user's input")
+		}
+		c.Peers = cs.Replicas
+	}
+	if n := len(c.Peers); c.Peers != nil && n < 1 {
+		return fmt.Errorf("vr: there are no available nodes in the replication group")
+	}
 	if c.AppliedNum < 0 {
 		return fmt.Errorf("vr: applied number cannot be smaller than zero")
 	}
@@ -108,15 +118,9 @@ func newVR(cfg *Config) *VR {
 	if err := cfg.validate(); err != nil {
 		panic(fmt.Sprintf("vr: config validate error: %v", err))
 	}
-	hs, rs, err := cfg.Store.LoadState()
+	hs, err := cfg.Store.LoadHardState()
 	if err != nil {
-		panic(err)
-	}
-	if len(rs.Replicas) > 0 {
-		if len(cfg.Peers) > 0 {
-			log.Println("vr: found that there are replicas in the configuration file, and ignore the user's input")
-		}
-		cfg.Peers = rs.Replicas
+		panic(fmt.Sprintf("vr: load hard state error: %v", err))
 	}
 	vr := &VR{
 		num:               cfg.Num,
@@ -480,7 +484,6 @@ func callPrimary(v *VR, m proto.Message) {
 		v.broadcastAppend()
 	case proto.PrepareOk:
 		delay := v.windows[m.From].needDelay()
-		fmt.Println("")
 		v.windows[m.From].update(m.OpNum)
 		if v.tryCommit() {
 			v.broadcastAppend()

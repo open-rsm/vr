@@ -39,8 +39,12 @@ func (s *Store) SetAppliedState(as proto.AppliedState) error {
 	return nil
 }
 
-func (s *Store) LoadState() (proto.HardState, proto.ConfigurationState, error) {
-	return s.hardState, proto.ConfigurationState{}, nil
+func (s *Store) LoadConfigurationState() (proto.ConfigurationState, error) {
+	return proto.ConfigurationState{}, nil
+}
+
+func (s *Store) LoadHardState() (proto.HardState, error) {
+	return s.hardState, nil
 }
 
 func (s *Store) GetAppliedState() (proto.AppliedState, error) {
