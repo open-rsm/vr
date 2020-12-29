@@ -628,11 +628,11 @@ func (v *VR) handleAppliedState(m proto.Message) {
 		log.Printf("vr: %x [commit-number: %d] recovered applied state [op-number: %d, view-number: %d]",
 			v.num, v.CommitNum, opNum, viewNum)
 		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.lastOpNum()})
-	} else {
-		log.Printf("vr: %x [commit-number: %d] ignored applied state [op-number: %d, view-number: %d]",
-			v.num, v.CommitNum, opNum, viewNum)
-		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.commitNum})
+		return
 	}
+	log.Printf("vr: %x [commit-number: %d] ignored applied state [op-number: %d, view-number: %d]",
+		v.num, v.CommitNum, opNum, viewNum)
+	v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.commitNum})
 }
 
 func (v *VR) handleHeartbeat(m proto.Message) {
