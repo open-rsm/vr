@@ -28,3 +28,24 @@ func TestRoundRobinPicker(t *testing.T) {
 		}
 	}
 }
+
+func TestJudgeInvalidPicker(t *testing.T) {
+	const (
+		PickerUnknown = iota - 1
+		PackerA
+		PackerB
+	)
+	cases := []struct {
+		picker    int
+		expResult bool
+	}{
+		{PickerUnknown,false},
+		{PackerA,true},
+		{PackerB,false},
+	}
+	for i, test := range cases {
+		if rv := isInvalidPicker(test.picker); rv != test.expResult {
+			t.Errorf("#%d: is_invalid_picker = %v, expected %v", i, rv, test.expResult)
+		}
+	}
+}

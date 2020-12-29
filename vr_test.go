@@ -47,7 +47,6 @@ func TestPrimaryChange(t *testing.T) {
 		{newMock(node, node, hole), Primary},
 		{newMock(node, hole, hole, node, node), Primary},
 		{newMock(entries(1), node, entries(2), entries(1), node), Primary},
-		//{newMock(nil, entries(1), entries(2), entries(1, 3), nil), Backup},
 	}
 	for i, test := range cases {
 		test.trigger(changeMessage(replicaA, replicaA))
@@ -883,8 +882,8 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 func TestRaising(t *testing.T) {
 	num := uint64(1)
 	cases := []struct {
-		peers   []uint64
-		expProm bool
+		peers  []uint64
+		expRai bool
 	}{
 		{[]uint64{replicaA},true},
 		{[]uint64{replicaA, replicaB, replicaC},true},
@@ -901,8 +900,8 @@ func TestRaising(t *testing.T) {
 			0,
 			RoundRobin,
 		})
-		if rv := r.raising(); rv != test.expProm {
-			t.Errorf("#%d: raising = %v, expected %v", i, rv, test.expProm)
+		if rv := r.raising(); rv != test.expRai {
+			t.Errorf("#%d: raising = %v, expected %v", i, rv, test.expRai)
 		}
 	}
 }

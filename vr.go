@@ -88,6 +88,9 @@ func (c *Config) validate() error {
 	if c.HeartbeatTimeout == 0 {
 		c.HeartbeatTimeout = 100*time.Millisecond
 	}
+	if !isInvalidPicker(c.Picker) {
+		return fmt.Errorf("vr: picker is invalid: %d", c.Picker)
+	}
 	return nil
 }
 
@@ -131,11 +134,11 @@ func newVR(cfg *Config) *VR {
 		transitionTimeout: int(cfg.TransitionTimeout),
 		heartbeatTimeout:  int(cfg.HeartbeatTimeout),
 	}
-	vr.pick = pickers[cfg.Picker]
 	vr.rand = rand.New(rand.NewSource(int64(cfg.Num)))
 	for _, peer := range cfg.Peers {
 		vr.windows[peer] = &Window{Next: 1}
 	}
+	vr.initPicker(cfg.Picker)
 	if !hardStateCompare(hs, nilHardState) {
 		vr.loadHardState(hs)
 	}
@@ -575,6 +578,7 @@ func callBackup(v *VR, m proto.Message) {
 		v.becomeBackup(v.ViewNum, m.From)
 		v.status = Normal
 	case proto.RecoveryResponse:
+		// TODO: do load balancing to reduce the pressure on the primary
 		v.pulse = 0
 		v.prim = m.From
 		v.handleAppend(m)
@@ -598,7 +602,8 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 }
 
 func (v *VR) handleAppend(m proto.Message) {
-	if msgLastOpNum, ok := v.opLog.tryAppend(m.OpNum, m.LogNum, m.CommitNum, m.Entries...); ok {
+	msgLastOpNum, ok := v.opLog.tryAppend(m.OpNum, m.LogNum, m.CommitNum, m.Entries...);
+	if ok {
 		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: msgLastOpNum})
 		return
 	}
@@ -608,7 +613,6 @@ func (v *VR) handleAppend(m proto.Message) {
 			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.GetState, OpNum: m.OpNum, Note: v.opLog.lastOpNum()})
 	case Recovering:
-		// TODO: do load balancing to reduce the pressure on the primary
 		log.Printf("vr: %x recovering state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
 			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.Recovery, OpNum: m.OpNum, X: v.seq, Note: v.opLog.lastOpNum()})
@@ -621,7 +625,7 @@ func (v *VR) handleAppend(m proto.Message) {
 func (v *VR) handleAppliedState(m proto.Message) {
 	opNum, viewNum := m.AppliedState.Applied.OpNum, m.AppliedState.Applied.ViewNum
 	if v.recover(m.AppliedState) {
-		log.Printf("vr: %x [commit-number: %d] restored applied state [op-number: %d, view-number: %d]",
+		log.Printf("vr: %x [commit-number: %d] recovered applied state [op-number: %d, view-number: %d]",
 			v.num, v.CommitNum, opNum, viewNum)
 		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.lastOpNum()})
 	} else {
@@ -665,6 +669,10 @@ func (v *VR) loadHardState(hs proto.HardState) {
 	v.opLog.commitNum = hs.CommitNum
 	v.ViewNum = hs.ViewNum
 	v.CommitNum = hs.CommitNum
+}
+
+func (v *VR) initPicker(index int) {
+	loadPicker(&v.pick, index)
 }
 
 func (v *VR) createReplicator(num uint64) {
