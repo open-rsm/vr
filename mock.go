@@ -214,9 +214,11 @@ func diff(a, b string) string {
 	if a == b {
 		return ""
 	}
-	alpha, beta := mustTemp("alpha", a), mustTemp("beta", b)
-	defer os.Remove(alpha)
-	defer os.Remove(beta)
+	alpha, beta := mustTempFile("alpha*", a), mustTempFile("beta*", b)
+	defer func() {
+		os.Remove(alpha)
+		os.Remove(beta)
+	}()
 	cmd := exec.Command("diff", "-u", alpha, beta)
 	buf, err := cmd.CombinedOutput()
 	if err != nil {
@@ -228,7 +230,7 @@ func diff(a, b string) string {
 	return string(buf)
 }
 
-func mustTemp(pattern, data string) string {
+func mustTempFile(pattern, data string) string {
 	f, err := ioutil.TempFile("", pattern)
 	if err != nil {
 		panic(err)
