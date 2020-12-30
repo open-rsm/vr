@@ -35,25 +35,25 @@ type route struct {
 }
 
 func newMock(nodes ...Node) *mock {
-	size := len(nodes)
+	n := len(nodes)
 	m := &mock{
-		numbers: numberBySize(size),
-		nodes:   make(map[uint64]Node, size),
-		stores:  make(map[uint64]*Store, size),
+		numbers: numberBySize(n),
+		nodes:   make(map[uint64]Node, n),
+		stores:  make(map[uint64]*Store, n),
 		routers: make(map[route]float64),
 		ignores: make(map[proto.MessageType]bool),
 	}
 	for i, node := range nodes {
-		if err := m.build(i, size, node); err != nil {
+		if err := m.build(i, node, n); err != nil {
 			panic(err)
 		}
 	}
 	return m
 }
 
-func (m *mock) build(index, size int, node Node) error {
-	if size <= 0 {
-		return fmt.Errorf("node too small: %d", size)
+func (m *mock) build(index int, node Node, n int) error {
+	if n <= 0 {
+		return fmt.Errorf("node too small: %d", n)
 	}
 	num := m.numbers[index]
 	switch v := node.(type) {
@@ -73,7 +73,7 @@ func (m *mock) build(index, size int, node Node) error {
 	case *VR:
 		v.num = num
 		v.windows = make(map[uint64]*Window)
-		for i := 0; i < size; i++ {
+		for i := 0; i < n; i++ {
 			v.windows[m.numbers[i]] = &Window{}
 		}
 		v.reset(0)
@@ -130,21 +130,27 @@ func (m *mock) reset() {
 func (m *mock) handler(msgs []proto.Message) []proto.Message {
 	ms := []proto.Message{}
 	for _, msg := range msgs {
-		if m.ignores[msg.Type] {
-			continue
+		if err := m.filter(msg, &ms); err != nil {
+			panic(err)
 		}
-		switch msg.Type {
-		case proto.Change:
-			panic("unexpected change")
-		default:
-			router := m.routers[route{msg.From, msg.To}]
-			if n := rand.Float64(); n < router {
-				continue
-			}
-		}
-		ms = append(ms, msg)
 	}
 	return ms
+}
+
+func (m *mock) filter(msg proto.Message, msgs *[]proto.Message) error {
+	if m.ignores[msg.Type] {
+		return nil
+	}
+	if msg.Type == proto.Change {
+		return fmt.Errorf("unexpected change")
+	} else {
+		router := m.routers[route{msg.From, msg.To}]
+		if n := rand.Float64(); n < router {
+			return nil
+		}
+	}
+	*msgs = append(*msgs, msg)
+	return nil
 }
 
 type real struct {}
