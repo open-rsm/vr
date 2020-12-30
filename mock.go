@@ -23,6 +23,7 @@ func (v *VR) handleMessages() []proto.Message {
 }
 
 type mock struct {
+	numbers []uint64
 	nodes   map[uint64]Node
 	stores  map[uint64]*Store
 	routers map[route]float64
@@ -35,43 +36,52 @@ type route struct {
 
 func newMock(nodes ...Node) *mock {
 	size := len(nodes)
-	replicas := replicasBySize(size)
-	peers := make(map[uint64]Node, size)
-	stores := make(map[uint64]*Store, size)
-	for i, node := range nodes {
-		num := replicas[i]
-		switch v := node.(type) {
-		case *real:
-			stores[num] = NewStore()
-			vr := newVR(&Config{
-				Num:               num,
-				Peers:             replicas,
-				TransitionTimeout: 10,
-				HeartbeatTimeout:  1,
-				Store:             stores[num],
-				AppliedNum:        0,
-			})
-			peers[num] = vr
-		case *VR:
-			v.num = num
-			v.windows = make(map[uint64]*Window)
-			for i := 0; i < size; i++ {
-				v.windows[replicas[i]] = &Window{}
-			}
-			v.reset(0)
-			peers[num] = v
-		case *faker:
-			peers[num] = v
-		default:
-			panic(fmt.Sprintf("unexpecteded state machine type: %T", node))
-		}
-	}
-	return &mock{
-		nodes:   peers,
-		stores:  stores,
+	m := &mock{
+		numbers: numberBySize(size),
+		nodes:   make(map[uint64]Node, size),
+		stores:  make(map[uint64]*Store, size),
 		routers: make(map[route]float64),
 		ignores: make(map[proto.MessageType]bool),
 	}
+	for i, node := range nodes {
+		if err := m.build(i, size, node); err != nil {
+			panic(err)
+		}
+	}
+	return m
+}
+
+func (m *mock) build(index, size int, node Node) error {
+	if size <= 0 {
+		return fmt.Errorf("node too small: %d", size)
+	}
+	num := m.numbers[index]
+	switch v := node.(type) {
+	case *real:
+		m.stores[num] = NewStore()
+		vr := newVR(&Config{
+			Num:               num,
+			Peers:             m.numbers,
+			TransitionTimeout: 10,
+			HeartbeatTimeout:  1,
+			Store:             m.stores[num],
+			AppliedNum:        0,
+		})
+		m.nodes[num] = vr
+	case *faker:
+		m.nodes[num] = v
+	case *VR:
+		v.num = num
+		v.windows = make(map[uint64]*Window)
+		for i := 0; i < size; i++ {
+			v.windows[m.numbers[i]] = &Window{}
+		}
+		v.reset(0)
+		m.nodes[num] = v
+	default:
+		return fmt.Errorf("unexpecteded node type: %T", node)
+	}
+	return nil
 }
 
 func (m *mock) trigger(msgs ...proto.Message) {
@@ -79,7 +89,8 @@ func (m *mock) trigger(msgs ...proto.Message) {
 		msg := msgs[0]
 		peer := m.nodes[msg.To]
 		peer.Call(msg)
-		msgs = append(msgs[1:], m.filter(peer.handleMessages())...)
+		adds := m.handler(peer.handleMessages())
+		msgs = append(msgs[1:], adds...)
 	}
 }
 
@@ -111,11 +122,12 @@ func (m *mock) ignore(mt proto.MessageType) {
 }
 
 func (m *mock) reset() {
+	m.numbers = []uint64{}
 	m.routers = make(map[route]float64)
 	m.ignores = make(map[proto.MessageType]bool)
 }
 
-func (m *mock) filter(msgs []proto.Message) []proto.Message {
+func (m *mock) handler(msgs []proto.Message) []proto.Message {
 	ms := []proto.Message{}
 	for _, msg := range msgs {
 		if m.ignores[msg.Type] {
@@ -123,11 +135,10 @@ func (m *mock) filter(msgs []proto.Message) []proto.Message {
 		}
 		switch msg.Type {
 		case proto.Change:
-			// change never go over the mock, so don'm delete them but panic
 			panic("unexpected change")
 		default:
-			drop := m.routers[route{msg.From, msg.To}]
-			if n := rand.Float64(); n < drop {
+			router := m.routers[route{msg.From, msg.To}]
+			if n := rand.Float64(); n < router {
 				continue
 			}
 		}
@@ -160,7 +171,7 @@ func (faker) handleMessages() []proto.Message {
 
 var hole = &faker{}
 
-func replicasBySize(size int) []uint64 {
+func numberBySize(size int) []uint64 {
 	nums := make([]uint64, size)
 	for i := 0; i < size; i++ {
 		nums[i] = 1 + uint64(i)
