@@ -59,7 +59,7 @@ type Config struct {
 	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
 	HeartbeatTimeout  time.Duration  // maximum waiting time (ms) for backups
 	AppliedNum        uint64         // where the log has been applied ?
-	Picker            int            // replication selection strategy
+	Elector           int            // replication selection strategy
 }
 
 // configure check
@@ -92,8 +92,8 @@ func (c *Config) validate() error {
 	if c.HeartbeatTimeout == 0 {
 		c.HeartbeatTimeout = 100*time.Millisecond
 	}
-	if !isInvalidPicker(c.Picker) {
-		return fmt.Errorf("vr: picker is invalid: %d", c.Picker)
+	if !isInvalidElector(c.Elector) {
+		return fmt.Errorf("vr: elector is invalid: %d", c.Elector)
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ type VR struct {
 
 	num               uint64              // replica number, from 1 start
 	opLog             *opLog              // used to manage operation logs
-	windows           map[uint64]*Window  // Control and manage the current synchronization progress
+	windows           map[uint64]*Window  // control and manage the current synchronization progress
 	status            status              // record the current replication group status
 	role              role                // mark the current replica role
 	views             [3]map[uint64]bool  // count the views of each replica during the view change process
@@ -117,36 +117,36 @@ type VR struct {
 	rand              *rand.Rand          // generate random seed
 	call              callFn              // intervention automaton device through external events
 	clock             clockFn             // drive clock oscillator
-	pick              pickFn              // selector for pre-selected primary replica node
+	elect             electFn             // selector for pre-selected primary replica node
 	seq               uint64              // monotonically increasing number
 }
 
-func newVR(cfg *Config) *VR {
-	if err := cfg.validate(); err != nil {
+func newVR(c *Config) *VR {
+	if err := c.validate(); err != nil {
 		panic(fmt.Sprintf("vr: config validate error: %v", err))
 	}
-	hs, err := cfg.Store.LoadHardState()
+	hs, err := c.Store.LoadHardState()
 	if err != nil {
 		panic(fmt.Sprintf("vr: load hard state error: %v", err))
 	}
 	vr := &VR{
-		num:               cfg.Num,
+		num:               c.Num,
 		prim:              None,
-		opLog:             newOpLog(cfg.Store),
+		opLog:             newOpLog(c.Store),
 		windows:           make(map[uint64]*Window),
 		HardState:         hs,
-		transitionTimeout: int(cfg.TransitionTimeout),
-		heartbeatTimeout:  int(cfg.HeartbeatTimeout),
+		transitionTimeout: int(c.TransitionTimeout),
+		heartbeatTimeout:  int(c.HeartbeatTimeout),
 	}
-	vr.rand = rand.New(rand.NewSource(int64(cfg.Num)))
-	for _, peer := range cfg.Peers {
-		vr.windows[peer] = &Window{Next: 1}
+	vr.rand = rand.New(rand.NewSource(int64(c.Num)))
+	for _, peer := range c.Peers {
+		vr.windows[peer] = newWindow()
 	}
-	vr.initPicker(cfg.Picker)
+	vr.initElector(c.Elector)
 	if !hardStateCompare(hs, nilHardState) {
 		vr.loadHardState(hs)
 	}
-	if num := cfg.AppliedNum; num > 0 {
+	if num := c.AppliedNum; num > 0 {
 		vr.opLog.appliedTo(num)
 	}
 	vr.becomeBackup(uint64(vr.ViewNum), None)
@@ -448,7 +448,7 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.pick(v.ViewNum, v.windows, nil); num != v.num {
+	if num := v.elect(v.ViewNum, v.windows); num != v.num {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, windows: %d",
 				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum, len(v.windows))
 		v.send(proto.Message{From: v.num, To: num, Type: proto.DoViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
@@ -675,8 +675,8 @@ func (v *VR) loadHardState(hs proto.HardState) {
 	v.CommitNum = hs.CommitNum
 }
 
-func (v *VR) initPicker(index int) {
-	loadPicker(&v.pick, index)
+func (v *VR) initElector(index int) {
+	loadElector(&v.elect, index)
 }
 
 func (v *VR) createReplicator(num uint64) {
@@ -686,8 +686,8 @@ func (v *VR) createReplicator(num uint64) {
 	v.setWindow(num, 0, v.opLog.lastOpNum()+1)
 }
 
-func (v *VR) destroyReplicator(id uint64) {
-	v.delWindow(id)
+func (v *VR) destroyReplicator(num uint64) {
+	v.delWindow(num)
 }
 
 func (v *VR) setWindow(num, offset, next uint64) {

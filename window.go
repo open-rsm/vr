@@ -15,6 +15,12 @@ type Window struct {
 	Next  uint64
 }
 
+func newWindow() *Window {
+	return &Window{
+		Next: One,
+	}
+}
+
 func (w *Window) delaySet(d int) {
 	w.Delay = d
 }

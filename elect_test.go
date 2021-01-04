@@ -2,7 +2,7 @@ package vr
 
 import "testing"
 
-func TestRoundRobinPicker(t *testing.T) {
+func TestRoundRobinElector(t *testing.T) {
 	buildWindows := func(nums []uint64) map[uint64]*Window {
 		var windows = map[uint64]*Window{}
 		for _, num := range nums {
@@ -29,23 +29,23 @@ func TestRoundRobinPicker(t *testing.T) {
 	}
 }
 
-func TestJudgeInvalidPicker(t *testing.T) {
+func TestJudgeInvalidElector(t *testing.T) {
 	const (
-		PickerUnknown = iota - 1
-		PackerA
-		PackerB
+		ElectorUnknown = iota - 1
+		ElectorA
+		ElectorB
 	)
 	cases := []struct {
-		picker    int
+		elector    int
 		expResult bool
 	}{
-		{PickerUnknown,false},
-		{PackerA,true},
-		{PackerB,false},
+		{ElectorUnknown,false},
+		{ElectorA,true},
+		{ElectorB,false},
 	}
 	for i, test := range cases {
-		if rv := isInvalidPicker(test.picker); rv != test.expResult {
-			t.Errorf("#%d: is_invalid_picker = %v, expected %v", i, rv, test.expResult)
+		if rv := isInvalidElector(test.elector); rv != test.expResult {
+			t.Errorf("#%d: is_invalid_elector = %v, expected %v", i, rv, test.expResult)
 		}
 	}
 }

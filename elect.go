@@ -4,9 +4,9 @@ const (
 	RoundRobin = iota
 )
 
-type pickFn func(uint64, map[uint64]*Window, ... func()) uint64
+type electFn func(uint64, map[uint64]*Window, ... func()) uint64
 
-var pickers = []pickFn{
+var electors = []electFn{
 	roundRobin,
 }
 
@@ -17,13 +17,13 @@ func roundRobin(num uint64, ws map[uint64]*Window, _... func()) uint64 {
 	return 1
 }
 
-func isInvalidPicker(num int) bool {
-	if 0 <= num && num < len(pickers) {
+func isInvalidElector(num int) bool {
+	if 0 <= num && num < len(electors) {
 		return true
 	}
 	return false
 }
 
-func loadPicker(f *pickFn, num int) {
-	*f = pickers[num]
+func loadElector(ef *electFn, num int) {
+	*ef = electors[num]
 }
