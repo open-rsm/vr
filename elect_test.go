@@ -6,7 +6,7 @@ func TestRoundRobinElector(t *testing.T) {
 	buildWindows := func(nums []uint64) map[uint64]*Window {
 		var windows = map[uint64]*Window{}
 		for _, num := range nums {
-			windows[num] = &Window{}
+			windows[num] = newWindow()
 		}
 		return windows
 	}
