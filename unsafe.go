@@ -13,7 +13,7 @@ type unsafe struct {
 	appliedState *proto.AppliedState  // applied state handler
 }
 
-func (u *unsafe) mustInspectionOverflow(low, up uint64) {
+func (u *unsafe) subset(low uint64, up uint64) []proto.Entry {
 	if low > up {
 		log.Panicf("vr.unsafe: invalid unsafe.subset %d > %d", low, up)
 	}
@@ -22,10 +22,6 @@ func (u *unsafe) mustInspectionOverflow(low, up uint64) {
 	if low < lower || up > upper {
 		log.Panicf("vr.unsafe: unsafe.subset[%d,%d) out of bound [%d,%d]", low, up, lower, upper)
 	}
-}
-
-func (u *unsafe) subset(low uint64, up uint64) []proto.Entry {
-	u.mustInspectionOverflow(low, up)
 	return u.entries[low-u.offset : up-u.offset]
 }
 

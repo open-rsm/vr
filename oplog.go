@@ -38,6 +38,16 @@ func newOpLog(store *Store) *opLog {
 	return opLog
 }
 
+func (r *opLog) mustInspectionOverflow(low, up uint64) {
+	if low > up {
+		log.Panicf("vr.oplog: invalid subset %d > %d", low, up)
+	}
+	length := r.lastOpNum() - r.startOpNum() + 1
+	if low < r.startOpNum() || up > r.startOpNum()+length {
+		log.Panicf("vr.oplog: subset[%d,%d) overflow [%d,%d]", low, up, r.startOpNum(), r.lastOpNum())
+	}
+}
+
 // search part of log entries
 func (r *opLog) subset(low uint64, up uint64) []proto.Entry {
 	r.mustInspectionOverflow(low, up)
@@ -64,16 +74,6 @@ func (r *opLog) subset(low uint64, up uint64) []proto.Entry {
 		}
 	}
 	return entries
-}
-
-func (r *opLog) mustInspectionOverflow(low, up uint64) {
-	if low > up {
-		log.Panicf("vr.oplog: invalid subset %d > %d", low, up)
-	}
-	length := r.lastOpNum() - r.startOpNum() + 1
-	if low < r.startOpNum() || up > r.startOpNum()+length {
-		log.Panicf("vr.oplog: subset[%d,%d) out of bound [%d,%d]", low, up, r.startOpNum(), r.lastOpNum())
-	}
 }
 
 func (r *opLog) tryAppend(opNum, logNum, commitNum uint64, entries ...proto.Entry) (lastNewOpNum uint64, ok bool) {
