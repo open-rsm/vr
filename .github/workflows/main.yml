@@ -25,12 +25,8 @@ jobs:
       matrix:
         imgtag:
           - "golang:1.12-buster"
-          #- "golang:1.13-buster"
-          #- "golang:1.14-buster"
-          #- "golang:1.15-buster"
         goarch:
           - "amd64"
-          #- "386"
 
     container: "${{matrix.imgtag}}"
     env:
@@ -45,12 +41,6 @@ jobs:
       - uses: actions/checkout@v2
         with:
           path: ${{env.SRCDIR}}
-
-      # Runs a single command using the runners shell
-      #- name: build
-      #  run: |
-      #    cd $SRCDIR
-      #    make all
 
       # Runs a set of commands using the runners shell
       - name: test
@@ -73,8 +63,7 @@ jobs:
           path: ${{env.SRCDIR}}
 
       - name: install goveralls
-        run: |
-          go get github.com/mattn/goveralls
+        run: go get github.com/mattn/goveralls
 
       - name: submit coverage
         env:
