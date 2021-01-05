@@ -31,12 +31,13 @@ jobs:
         goarch:
           - "amd64"
           - "386"
+
     container: "${{matrix.imgtag}}"
-      env:
-        GOPATH: "${{github.workspace}}/go"
-        GOARCH: "${{matrix.goarch}}"
-        SRCDIR: "go/src/github.com/open-rsm/vr"
-        GO111MODULE: "off"
+    env:
+      GOPATH: "${{github.workspace}}/go"
+      GOARCH: "${{matrix.goarch}}"
+      SRCDIR: "go/src/github.com/open-rsm/vr"
+      GO111MODULE: "off"
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
