@@ -73,7 +73,6 @@ jobs:
 
       - name: install goveralls
         run: |
-          go get github.com/open-rsm/spec
           GO111MODULE=on go get github.com/mattn/goveralls
 
 
