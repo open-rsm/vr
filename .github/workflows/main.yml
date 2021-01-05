@@ -73,8 +73,9 @@ jobs:
 
       - name: install goveralls
         run: |
-          GO111MODULE=off go get github.com/mattn/goveralls
           go get github.com/open-rsm/spec
+          GO111MODULE=off go get github.com/mattn/goveralls
+
 
       - name: submit coverage
         env:
