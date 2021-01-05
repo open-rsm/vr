@@ -1,13 +1,13 @@
-language: go
-go:
-  - 1.12.x
-env:
-  - GOARCH=amd64
-  - GOARCH=386
-sudo: true
-go_import_path: github.com/open-rsm/vr
-before_install:
-script:
-  - ./travis.sh
-notifications:
-  email: false
+#language: go
+#go:
+#  - 1.12.x
+#env:
+#  - GOARCH=amd64
+#  - GOARCH=386
+#sudo: true
+#go_import_path: github.com/open-rsm/vr
+#before_install:
+#script:
+#  - ./travis.sh
+#notifications:
+#  email: false

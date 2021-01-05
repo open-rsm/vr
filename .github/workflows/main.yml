@@ -19,18 +19,63 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        imgtag:
+          - "golang:1.12-buster"
+          - "golang:1.13-buster"
+          - "golang:1.14-buster"
+          - "golang:1.15-buster"
+        goarch:
+          - "amd64"
+          - "386"
+    container: "${{matrix.imgtag}}"
+      env:
+        GOPATH: "${{github.workspace}}/go"
+        GOARCH: "${{matrix.goarch}}"
+        SRCDIR: "go/src/github.com/open-rsm/vr"
+        GO111MODULE: "off"
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
+        with:
+          path: ${{env.SRCDIR}}
 
       # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+      #- name: build
+      #  run: |
+      #    cd $SRCDIR
+      #    make all
 
       # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: test
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          cd $SRCDIR
+          ./test.sh
+
+  stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: "golang:1.12-buster"
+    env:
+      GOPATH: "${{github.workspace}}/go"
+      SRCDIR: "go/src/github.com/open-rsm/vr"
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: ${{env.SRCDIR}}
+
+      - name: install goveralls
+        run: GO111MODULE=off go get github.com/mattn/goveralls
+
+      - name: submit coverage
+        env:
+          COVERALLS_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        run: |
+          cd $SRCDIR
+          ./coverage.sh --coveralls
