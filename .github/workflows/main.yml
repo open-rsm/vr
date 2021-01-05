@@ -37,7 +37,7 @@ jobs:
       GOPATH: "${{github.workspace}}/go"
       GOARCH: "${{matrix.goarch}}"
       SRCDIR: "go/src/github.com/open-rsm/vr"
-      GO111MODULE: "off"
+      GO111MODULE: "on"
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
