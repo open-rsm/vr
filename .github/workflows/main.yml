@@ -72,7 +72,9 @@ jobs:
           path: ${{env.SRCDIR}}
 
       - name: install goveralls
-        run: GO111MODULE=off go get github.com/mattn/goveralls
+        run: |
+          GO111MODULE=off go get github.com/mattn/goveralls
+          go get github.com/open-rsm/spec
 
       - name: submit coverage
         env:
