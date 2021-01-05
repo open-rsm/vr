@@ -32,7 +32,7 @@ function show_csv_report() {
 
 function push_to_coveralls() {
     echo "submit coverage statistics to coveralls.io"
-    $GOPATH/bin/goveralls -coverprofile="$profile" -service=travis-ci || true
+    $GOPATH/bin/goveralls -coverprofile="$profile" -service=github || true
 }
 
 generate_cover_data $(go list ./...)
