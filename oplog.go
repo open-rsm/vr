@@ -56,7 +56,7 @@ func (r *opLog) subset(low uint64, up uint64) []proto.Entry {
 	}
 	var entries []proto.Entry
 	if r.unsafe.offset > low {
-		storedEntries, err := r.store.Seek(low, min(up, r.unsafe.offset))
+		storedEntries, err := r.store.Subset(low, min(up, r.unsafe.offset))
 		if err == ErrNotReached {
 			log.Panicf("vr.oplog: entries[%d:%d) is unavailable from stores", low, min(up, r.unsafe.offset))
 		} else if err != nil {

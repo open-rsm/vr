@@ -7,17 +7,17 @@ import (
 	"github.com/open-rsm/spec/proto"
 )
 
-var ErrNotReached = errors.New("access entry at op-number is not reached")
-var ErrArchived = errors.New("access op-number is not reached due to archive")
-var ErrOutOfBounds = errors.New("out of bounds")
-var ErrUnavailable = errors.New("requested entry at op-number is unavailable")
+var ErrNotReached = errors.New("vr.store: access entry at op-number is not reached")
+var ErrArchived = errors.New("vr.store: access op-number is not reached due to archive")
+var ErrOverflow = errors.New("vr.store: overflow")
+var ErrUnavailable = errors.New("vr.store: requested entry at op-number is unavailable")
 
 // storage models of view stamped replication
 type Store struct {
 	sync.Mutex
-	hardState    proto.HardState     //
-	appliedState proto.AppliedState  //
-	entries      []proto.Entry       //
+	hardState    proto.HardState     // persistent state that has been stored to disk
+	appliedState proto.AppliedState  // the state that has been used by the application layer
+	entries      []proto.Entry       // used to manage newly added log entries
 }
 
 func NewStore() *Store {
@@ -53,7 +53,34 @@ func (s *Store) GetAppliedState() (proto.AppliedState, error) {
 	return s.appliedState, nil
 }
 
-func (s *Store) Seek(low, up uint64) ([]proto.Entry, error) {
+func (s *Store) Append(entries []proto.Entry) error {
+	s.Lock()
+	defer s.Unlock()
+	if len(entries) == 0 {
+		return nil
+	}
+	start := s.startOpNum()
+	last := s.lastOpNum()
+	if last < start {
+		return nil
+	}
+	if start > entries[0].OpNum {
+		entries = entries[start-entries[0].OpNum:]
+	}
+	offset := entries[0].OpNum - s.startOpNum()
+	if uint64(len(s.entries)) > offset {
+		s.entries = append([]proto.Entry{}, s.entries[:offset]...)
+		s.entries = append(s.entries, entries...)
+	} else if uint64(len(s.entries)) == offset {
+		s.entries = append(s.entries, entries...)
+	} else {
+		log.Panicf("vr.store: not found oplog entry [last: %d, append at: %d]",
+			s.appliedState.Applied.OpNum+uint64(len(s.entries)), entries[0].OpNum)
+	}
+	return nil
+}
+
+func (s *Store) Subset(low, up uint64) ([]proto.Entry, error) {
 	s.Lock()
 	defer s.Unlock()
 	offset := s.entries[0].OpNum
@@ -61,7 +88,7 @@ func (s *Store) Seek(low, up uint64) ([]proto.Entry, error) {
 		return nil, ErrArchived
 	}
 	if up > s.lastOpNum()+1 {
-		log.Panicf("entries up(%d) is out of bound last-op-number(%d)", up, s.lastOpNum())
+		log.Panicf("vr.store: entries up(%d) is overflow last-op-number(%d)", up, s.lastOpNum())
 	}
 	if len(s.entries) == 1 {
 		return nil, ErrNotReached
@@ -112,10 +139,10 @@ func (s *Store) CreateAppliedState(num uint64, data []byte, rs *proto.Configurat
 	s.Lock()
 	defer s.Unlock()
 	if num < s.appliedState.Applied.OpNum {
-		return proto.AppliedState{}, ErrOutOfBounds
+		return proto.AppliedState{}, ErrOverflow
 	}
 	if num > s.lastOpNum() {
-		log.Panicf("vr.stores: appliedNum state %d is out of bound last op-number(%d)", num, s.lastOpNum())
+		log.Panicf("vr.store: applied-number state %d is overflow last op-number(%d)", num, s.lastOpNum())
 	}
 	s.appliedState.Applied.OpNum = num
 	s.appliedState.Applied.ViewNum = s.entries[num-s.startOpNum()].ViewNum
@@ -134,7 +161,7 @@ func (s *Store) Archive(archiveNum uint64) error {
 		return ErrArchived
 	}
 	if archiveNum >= s.lastOpNum() {
-		log.Panicf("vr.stores: archive %d is out of bound last op-number(%d)", archiveNum, offset+uint64(len(s.entries))-1)
+		log.Panicf("vr.store: archive %d is overflow last op-number(%d)", archiveNum, offset+uint64(len(s.entries))-1)
 	}
 	num := archiveNum - offset
 	entries := make([]proto.Entry, 1, 1+uint64(len(s.entries))-num)
@@ -142,33 +169,5 @@ func (s *Store) Archive(archiveNum uint64) error {
 	entries[0].ViewNum = s.entries[num].ViewNum
 	entries = append(entries, s.entries[num+1:]...)
 	s.entries = entries
-	return nil
-}
-
-func (s *Store) Append(entries []proto.Entry) error {
-	s.Lock()
-	defer s.Unlock()
-	if len(entries) == 0 {
-		return nil
-	}
-	start := s.startOpNum()
-	last := s.lastOpNum()
-	if last < start {
-		return nil
-	}
-	if start > entries[0].OpNum {
-		entries = entries[start-entries[0].OpNum:]
-	}
-	offset := entries[0].OpNum - s.startOpNum()
-	if uint64(len(s.entries)) > offset {
-		s.entries = append([]proto.Entry{}, s.entries[:offset]...)
-		s.entries = append(s.entries, entries...)
-
-	} else if uint64(len(s.entries)) == offset {
-		s.entries = append(s.entries, entries...)
-	} else {
-		log.Panicf("vr.stores: missing oplog entry [last: %d, append at: %d]",
-			s.appliedState.Applied.OpNum+uint64(len(s.entries)), entries[0].OpNum)
-	}
 	return nil
 }

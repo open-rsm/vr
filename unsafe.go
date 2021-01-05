@@ -20,7 +20,7 @@ func (u *unsafe) subset(low uint64, up uint64) []proto.Entry {
 	lower := u.offset
 	upper := lower + uint64(len(u.entries))
 	if low < lower || up > upper {
-		log.Panicf("vr.unsafe: unsafe.subset[%d,%d) out of bound [%d,%d]", low, up, lower, upper)
+		log.Panicf("vr.unsafe: unsafe.subset[%d,%d) overflow [%d,%d]", low, up, lower, upper)
 	}
 	return u.entries[low-u.offset : up-u.offset]
 }
