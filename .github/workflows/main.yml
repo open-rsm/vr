@@ -30,7 +30,7 @@ jobs:
           - "golang:1.15-buster"
         goarch:
           - "amd64"
-          - "386"
+          #- "386"
 
     container: "${{matrix.imgtag}}"
     env:
