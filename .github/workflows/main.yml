@@ -25,9 +25,9 @@ jobs:
       matrix:
         imgtag:
           - "golang:1.12-buster"
-          - "golang:1.13-buster"
-          - "golang:1.14-buster"
-          - "golang:1.15-buster"
+          #- "golang:1.13-buster"
+          #- "golang:1.14-buster"
+          #- "golang:1.15-buster"
         goarch:
           - "amd64"
           #- "386"
