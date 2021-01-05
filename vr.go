@@ -59,7 +59,7 @@ type Config struct {
 	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
 	HeartbeatTimeout  time.Duration  // maximum waiting time (ms) for backups
 	AppliedNum        uint64         // where the log has been applied ?
-	Elector           int            // replication selection strategy
+	Selector          int            // new primary node selection strategy
 }
 
 // configure check
@@ -92,8 +92,8 @@ func (c *Config) validate() error {
 	if c.HeartbeatTimeout == 0 {
 		c.HeartbeatTimeout = 100*time.Millisecond
 	}
-	if !isInvalidElector(c.Elector) {
-		return fmt.Errorf("vr: elector is invalid: %d", c.Elector)
+	if !isInvalidSelector(c.Selector) {
+		return fmt.Errorf("vr: selector is invalid: %d", c.Selector)
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ type VR struct {
 	rand              *rand.Rand          // generate random seed
 	call              callFn              // intervention automaton device through external events
 	clock             clockFn             // drive clock oscillator
-	elect             electFn             // selector for pre-selected primary replica node
+	selected          selectFn            // new primary node selection algorithm
 	seq               uint64              // monotonically increasing number
 }
 
@@ -142,7 +142,7 @@ func newVR(c *Config) *VR {
 	for _, peer := range c.Peers {
 		vr.windows[peer] = newWindow()
 	}
-	vr.initElector(c.Elector)
+	vr.initSelector(c.Selector)
 	if !hardStateCompare(hs, nilHardState) {
 		vr.loadHardState(hs)
 	}
@@ -448,7 +448,7 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.elect(v.ViewNum, v.windows); num != v.num {
+	if num := v.selected(v.ViewNum, v.windows); num != v.num {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, windows: %d",
 				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum, len(v.windows))
 		v.send(proto.Message{From: v.num, To: num, Type: proto.DoViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
@@ -675,8 +675,8 @@ func (v *VR) loadHardState(hs proto.HardState) {
 	v.CommitNum = hs.CommitNum
 }
 
-func (v *VR) initElector(index int) {
-	loadElector(&v.elect, index)
+func (v *VR) initSelector(num int) {
+	loadSelector(&v.selected, num)
 }
 
 func (v *VR) createReplicator(num uint64) {

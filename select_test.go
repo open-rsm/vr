@@ -1,8 +1,11 @@
 package vr
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
-func TestRoundRobinElector(t *testing.T) {
+func testRoundRobin() error {
 	buildWindows := func(nums []uint64) map[uint64]*Window {
 		var windows = map[uint64]*Window{}
 		for _, num := range nums {
@@ -24,28 +27,35 @@ func TestRoundRobinElector(t *testing.T) {
 	for i, test := range cases {
 		windows := test.windows(test.peers)
 		if rv := roundRobin(test.viewNum, windows); rv != test.expNum {
-			t.Errorf("#%d: round_robin = %v, expected %v", i, rv, test.expNum)
+			return fmt.Errorf("#%d: round_robin = %v, expected %v", i, rv, test.expNum)
 		}
+	}
+	return nil
+}
+
+func TestRoundRobinSelector(t *testing.T) {
+	if err := testRoundRobin(); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestJudgeInvalidElector(t *testing.T) {
+func TestJudgeInvalidSelector(t *testing.T) {
 	const (
-		ElectorUnknown = iota - 1
-		ElectorA
-		ElectorB
+		SelectorUnknown = iota - 1
+		SelectorA
+		SelectorB
 	)
 	cases := []struct {
 		elector    int
 		expResult bool
 	}{
-		{ElectorUnknown,false},
-		{ElectorA,true},
-		{ElectorB,false},
+		{SelectorUnknown,false},
+		{SelectorA,true},
+		{SelectorB,false},
 	}
 	for i, test := range cases {
-		if rv := isInvalidElector(test.elector); rv != test.expResult {
-			t.Errorf("#%d: is_invalid_elector = %v, expected %v", i, rv, test.expResult)
+		if rv := isInvalidSelector(test.elector); rv != test.expResult {
+			t.Errorf("#%d: is_invalid_selector = %v, expected %v", i, rv, test.expResult)
 		}
 	}
 }

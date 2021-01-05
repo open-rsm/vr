@@ -24,6 +24,21 @@ func TestPrimaryDeterminesLogOrder(t *testing.T) {
 // The backups monitor the primary, and if it appears to be
 // faulty, they carry out a view change protocol to select
 // a new primary.
+func TestSelectNewPrimary(t *testing.T) {
+
+}
+
+// Proof: section 4, figure 2
+// The replicas are numbered based on their IP addresses:
+// the replica with the smallest IP address is replica 1.
+// The primary is chosen round-robin, starting with replica 1,
+// as the system moves to new views. The status indicates what
+// sub-protocol the replica is engaged in.
+func TestRoundRobinChosen(t *testing.T) {
+	if err := testRoundRobin(); err != nil {
+		t.Error(err)
+	}
+}
 
 // Proof: section 4.1
 // Replicas only process normal protocol messages containing
