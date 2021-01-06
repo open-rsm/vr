@@ -70,4 +70,4 @@ jobs:
           COVERALLS_TOKEN: ${{secrets.GITHUB_TOKEN}}
         run: |
           cd $SRCDIR
-          ./coverage.sh --coveralls
+          ./coverage.sh -c

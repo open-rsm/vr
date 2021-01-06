@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
-# Usage: coverage.sh [--html|--coveralls]
+# Usage: coverage.sh [-h|-v|-c|-H|-C]
 #
-#     --html      Additionally create HTML report
-#     --coveralls Push coverage statistics to coveralls.io
-#
-
-set -o errexit
 
 work_dir=.cover
 profile="$work_dir/cover.out"
 mode=count
 
-function generate_cover_data() {
+function option() {
+    echo -e "Usage: coverage.sh [-h|-v|-c|-H|-C]"
+    echo -e "-h help \t get help"
+    echo -e "-v version \t look version"
+    echo -e "-c coveralls \t submit coverage statistics to coveralls.io"
+    echo -e "-H html \t additionally create HTML report"
+    echo -e "-C csv \t additionally create CSV report"
+    exit 0
+}
+
+function version() {
+    echo "coverage 0.0.1"
+    exit 0
+}
+
+function generate_cover() {
     rm -rf "$work_dir"
     mkdir "$work_dir"
     for pkg in "$@"; do
@@ -30,21 +40,62 @@ function show_csv_report() {
     go tool cover -func="$profile" -o="$work_dir"/coverage.csv
 }
 
-function push_to_coveralls() {
+function submit_to_coveralls() {
     echo "submit coverage statistics to coveralls.io"
     $GOPATH/bin/goveralls -coverprofile="$profile" -service=github || true
 }
 
-generate_cover_data $(go list ./...)
-show_csv_report
+function init() {
+    set -o errexit
+}
 
-case "$1" in
-"")
-    ;;
---html)
-    show_html_report ;;
---coveralls)
-    push_to_coveralls ;;
-*)
-    echo >&2 "error: invalid option: $1"; exit 1 ;;
-esac
+function main() {
+    init
+
+    cmd="coveralls"
+
+    while getopts :hvcHC OPTION;
+    do
+        case $OPTION in
+        h)
+            option
+            ;;
+        v)
+            version
+            ;;
+        c)
+            submit_to_coveralls
+            ;;
+        H)
+            cmd="html"
+            ;;
+        C)
+            cmd="csv"
+            ;;
+        ?)
+            echo "get a non option $OPTARG and OPTION is $OPTION"
+            ;;
+        esac
+    done
+
+    generate_cover $(go list ./...)
+    show_csv_report
+
+    case cmd in
+    "html")
+        show_html_report
+        ;;
+    "csv")
+        cmd=show_csv_report
+        ;;
+    "coveralls")
+        submit_to_coveralls
+        ;;
+    ?)
+        echo >&2 "error: invalid option: $cmd"; exit 1
+        ;;
+    esac
+}
+
+# The beginning of everything ^_^
+main $@
