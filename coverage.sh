@@ -2,6 +2,8 @@
 # Usage: coverage.sh [-h|-v|-c|-H|-C]
 #
 
+source ./includes.sh
+
 work_dir=.cover
 profile="$work_dir/cover.out"
 mode=count
@@ -43,10 +45,6 @@ function show_csv_report() {
 function submit_to_coveralls() {
     echo "submit coverage statistics to coveralls.io"
     $GOPATH/bin/goveralls -coverprofile="$profile" -service=github || true
-}
-
-function init() {
-    set -o errexit
 }
 
 function main() {
