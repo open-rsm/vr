@@ -2,7 +2,7 @@ package vr
 
 import (
 	"testing"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 // Proof: section 3
@@ -76,14 +76,15 @@ func testSenderBehindDropsMessage(t *testing.T, s role) {
 	case Replica:
 		r.becomeReplica()
 	case Backup:
-		r.becomeBackup(1, 2)
+		vs := proto.ViewStamp{ViewNum:1}
+		r.becomeBackup(vs, 2)
 	case Primary:
 		r.becomeReplica()
 		r.becomePrimary()
 	}
-	r.Call(proto.Message{Type: proto.Prepare, ViewNum: 2})
-	if r.ViewNum != 2 {
-		t.Errorf("view-number = %d, expected %d", r.ViewNum, 2)
+	r.Call(proto.Message{Type: proto.Prepare, ViewStamp: proto.ViewStamp{ViewNum: 2}})
+	if r.ViewStamp.ViewNum != 2 {
+		t.Errorf("view-number = %d, expected %d", r.ViewStamp.ViewNum, 2)
 	}
 	if r.role != Backup {
 		t.Errorf("s = %v, expected %v", r.role, Backup)

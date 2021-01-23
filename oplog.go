@@ -3,7 +3,7 @@ package vr
 import (
 	"fmt"
 	"log"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 // operation log manager for view stamped replication
@@ -98,7 +98,7 @@ func (r *opLog) append(entries ...proto.Entry) uint64 {
 	if len(entries) == 0 {
 		return r.lastOpNum()
 	}
-	if ahead := entries[0].OpNum - 1; ahead < r.commitNum {
+	if ahead := entries[0].ViewStamp.OpNum - 1; ahead < r.commitNum {
 		log.Panicf("vr.oplog: ahead(%d) is out of range [commit-number(%d)]", ahead, r.commitNum)
 	}
 	r.unsafe.truncateAndAppend(entries)
@@ -107,12 +107,12 @@ func (r *opLog) append(entries ...proto.Entry) uint64 {
 
 func (r *opLog) scanCollision(entries []proto.Entry) uint64 {
 	for _, entry := range entries {
-		if !r.checkNum(entry.OpNum, entry.ViewNum) {
-			if entry.OpNum <= r.lastOpNum() {
+		if !r.checkNum(entry.ViewStamp.OpNum, entry.ViewStamp.ViewNum) {
+			if entry.ViewStamp.OpNum <= r.lastOpNum() {
 				log.Printf("vr.oplog: scan to collision at op-number %d [existing view-number: %d, collision view-number: %d]",
-					entry.OpNum, r.viewNum(entry.OpNum), entry.ViewNum)
+					entry.ViewStamp.OpNum, r.viewNum(entry.ViewStamp.OpNum), entry.ViewStamp.ViewNum)
 			}
-			return entry.OpNum
+			return entry.ViewStamp.OpNum
 		}
 	}
 	return 0
@@ -235,8 +235,8 @@ func (r *opLog) tryCommit(maxOpNum, viewNum uint64) bool {
 }
 
 func (r *opLog) recover(state proto.AppliedState) {
-	log.Printf("vr.oplog: log [%s] starts to reset applied state [op-number: %d, view-number: %d]", r, state.Applied.OpNum, state.Applied.ViewNum)
-	r.commitNum = state.Applied.OpNum
+	log.Printf("vr.oplog: log [%s] starts to reset applied state [op-number: %d, view-number: %d]", r, state.Applied.ViewStamp.OpNum, state.Applied.ViewStamp.ViewNum)
+	r.commitNum = state.Applied.ViewStamp.OpNum
 	r.unsafe.recover(state)
 }
 

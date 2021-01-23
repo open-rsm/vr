@@ -8,7 +8,7 @@ import (
 	"time"
 	"sort"
 	"strings"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 const (
@@ -103,22 +103,22 @@ type VR struct {
 	// The key state of the replication group that has landed
 	proto.HardState
 
-	num               uint64              // replica number, from 1 start
-	opLog             *opLog              // used to manage operation logs
-	windows           map[uint64]*Window  // control and manage the current synchronization progress
-	status            status              // record the current replication group status
-	role              role                // mark the current replica role
-	views             [3]map[uint64]bool  // count the views of each replica during the view change process
-	messages          []proto.Message     // temporarily store messages that need to be sent
-	prim              uint64              // who is the primary ?
-	pulse             int                 // occurrence frequency
-	transitionTimeout int                 // maximum processing time for primary
-	heartbeatTimeout  int                 // maximum waiting time for backups
-	rand              *rand.Rand          // generate random seed
-	call              callFn              // intervention automaton device through external events
-	clock             clockFn             // drive clock oscillator
-	selected          selectFn            // new primary node selection algorithm
-	seq               uint64              // monotonically increasing number
+	replicaNum        uint64             // replica number, from 1 start
+	opLog             *opLog             // used to manage operation logs
+	windows           map[uint64]*Window // control and manage the current synchronization progress
+	status            status             // record the current replication group status
+	role              role               // mark the current replica role
+	views             [3]map[uint64]bool // count the views of each replica during the view change process
+	messages          []proto.Message    // temporarily store messages that need to be sent
+	prim              uint64             // who is the primary ?
+	pulse             int                // occurrence frequency
+	transitionTimeout int                // maximum processing time for primary
+	heartbeatTimeout  int                // maximum waiting time for backups
+	rand              *rand.Rand         // generate random seed
+	call              callFn             // intervention automaton device through external events
+	clock             clockFn            // drive clock oscillator
+	selected          selectFn           // new primary node selection algorithm
+	seq               uint64             // monotonically increasing number
 }
 
 func newVR(c *Config) *VR {
@@ -130,7 +130,7 @@ func newVR(c *Config) *VR {
 		panic(fmt.Sprintf("vr: load hard state error: %v", err))
 	}
 	vr := &VR{
-		num:               c.Num,
+		replicaNum:        c.Num,
 		prim:              None,
 		opLog:             newOpLog(c.Store),
 		windows:           make(map[uint64]*Window),
@@ -149,13 +149,13 @@ func newVR(c *Config) *VR {
 	if num := c.AppliedNum; num > 0 {
 		vr.opLog.appliedTo(num)
 	}
-	vr.becomeBackup(uint64(vr.ViewNum), None)
+	vr.becomeBackup(vr.ViewStamp, None)
 	var replicaList []string
 	for _, n := range vr.replicas() {
 		replicaList = append(replicaList, fmt.Sprintf("%x", n))
 	}
 	log.Printf("vr: new vr %x [nodes: [%s], view-number: %d, commit-number: %d, applied-number: %d, last-op-number: %d, last-view-number: %d]",
-		vr.num, strings.Join(replicaList, ","), vr.ViewNum, vr.opLog.commitNum, vr.opLog.appliedNum, vr.opLog.lastOpNum(), vr.opLog.lastViewNum())
+		vr.replicaNum, strings.Join(replicaList, ","), vr.ViewStamp.ViewNum, vr.opLog.commitNum, vr.opLog.appliedNum, vr.opLog.lastOpNum(), vr.opLog.lastViewNum())
 	return vr
 }
 
@@ -165,12 +165,12 @@ func (v *VR) becomePrimary() {
 	}
 	v.call = callPrimary
 	v.clock = v.clockHeartbeat
-	v.reset(v.ViewNum)
+	v.reset(v.ViewStamp.ViewNum)
 	v.initEntry()
-	v.prim = v.num
+	v.prim = v.replicaNum
 	v.role = Primary
 	v.status = Normal
-	log.Printf("vr: %x became primary at view-number %d", v.num, v.ViewNum)
+	log.Printf("vr: %x became primary at view-number %d", v.replicaNum, v.ViewStamp.ViewNum)
 }
 
 func (v *VR) becomeReplica() {
@@ -179,23 +179,23 @@ func (v *VR) becomeReplica() {
 	}
 	v.call = callReplica
 	v.clock = v.clockTransition
-	v.reset(v.ViewNum + 1)
+	v.reset(v.ViewStamp.ViewNum + 1)
 	v.role = Replica
 	v.status = ViewChange
-	log.Printf("vr: %x became replica at view-number %d", v.num, v.ViewNum)
+	log.Printf("vr: %x became replica at view-number %d", v.replicaNum, v.ViewStamp.ViewNum)
 }
 
-func (v *VR) becomeBackup(viewNum, prim uint64) {
+func (v *VR) becomeBackup(vs proto.ViewStamp, prim uint64) {
 	v.call = callBackup
 	v.clock = v.clockTransition
-	v.reset(viewNum)
+	v.reset(vs.ViewNum)
 	v.prim = prim
 	v.role = Backup
 	v.status = Normal
 	if v.prim == None {
-		log.Printf("vr: %x became backup at view-number %d, primary not found", v.num, v.ViewNum)
+		log.Printf("vr: %x became backup at view-number %d, primary not found", v.replicaNum, v.ViewStamp.ViewNum)
 	} else {
-		log.Printf("vr: %x became backup at view-number %d, primary is %d", v.num, v.ViewNum, v.prim)
+		log.Printf("vr: %x became backup at view-number %d, primary is %d", v.replicaNum, v.ViewStamp.ViewNum, v.prim)
 	}
 }
 
@@ -214,7 +214,7 @@ func (v *VR) tryCommit() bool {
 	}
 	sort.Sort(sort.Reverse(nums))
 	num := nums[v.quorums()-1]
-	return v.opLog.tryCommit(num, v.ViewNum)
+	return v.opLog.tryCommit(num, v.ViewStamp.ViewNum)
 }
 
 func (v *VR) resetViews()  {
@@ -224,15 +224,15 @@ func (v *VR) resetViews()  {
 }
 
 func (v *VR) reset(ViewNum uint64) {
-	if v.ViewNum != ViewNum {
-		v.ViewNum = ViewNum
+	if v.ViewStamp.ViewNum != ViewNum {
+		v.ViewStamp.ViewNum = ViewNum
 	}
 	v.prim = None
 	v.pulse = 0
 	v.resetViews()
 	for i := range v.windows {
 		v.windows[i] = &Window{Next: v.opLog.lastOpNum() + 1}
-		if i == v.num {
+		if i == v.replicaNum {
 			v.windows[i].Ack = v.opLog.lastOpNum()
 		}
 	}
@@ -240,24 +240,24 @@ func (v *VR) reset(ViewNum uint64) {
 
 func (v *VR) Call(m proto.Message) error {
 	if m.Type == proto.Change {
-		log.Printf("vr: %x is starting a new view changes at view-number %d", v.num, v.ViewNum)
+		log.Printf("vr: %x is starting a new view changes at view-number %d", v.replicaNum, v.ViewStamp.ViewNum)
 		change(v)
 		v.CommitNum = v.opLog.commitNum
 		return nil
 	}
 	switch {
-	case m.ViewNum == 0:
-	case m.ViewNum > v.ViewNum:
+	case m.ViewStamp.ViewNum == 0:
+	case m.ViewStamp.ViewNum > v.ViewStamp.ViewNum:
 		prim := m.From
 		if (m.Type == proto.StartViewChange) || m.Type == proto.DoViewChange {
 			prim = None
 		}
 		log.Printf("vr: %x [view-number: %d] received a %s message with higher view-number from %x [view-number: %d]",
-			v.num, v.ViewNum, m.Type, m.To, m.ViewNum)
-		v.becomeBackup(m.ViewNum, prim)
-	case m.ViewNum < v.ViewNum:
+			v.replicaNum, v.ViewStamp.ViewNum, m.Type, m.To, m.ViewStamp.ViewNum)
+		v.becomeBackup(m.ViewStamp, prim)
+	case m.ViewStamp.ViewNum < v.ViewStamp.ViewNum:
 		log.Printf("vr: %x [view-number: %d] ignored a %s message with lower view-number from %x [view-number: %d]",
-			v.num, v.ViewNum, m.Type, m.To, m.ViewNum)
+			v.replicaNum, v.ViewStamp.ViewNum, m.Type, m.To, m.ViewStamp.ViewNum)
 		return nil
 	}
 	v.call(v, m)
@@ -281,10 +281,10 @@ func (v *VR) stats(phrase int) (count int) {
 func (v *VR) collect(num uint64, view bool, phrase int) int {
 	if view {
 		log.Printf("vr: %x received view-change from %x at view-number %d and phrase %d",
-			v.num, num, v.ViewNum, phrase)
+			v.replicaNum, num, v.ViewStamp.ViewNum, phrase)
 	} else {
 		log.Printf("vr: %x received ignore view from %x at view-number %d and phrase %d",
-			v.num, num, v.ViewNum, phrase)
+			v.replicaNum, num, v.ViewStamp.ViewNum, phrase)
 	}
 	if _, ok := v.views[phrase][num]; !ok {
 		v.views[phrase][num] = view
@@ -293,9 +293,9 @@ func (v *VR) collect(num uint64, view bool, phrase int) int {
 }
 
 func (v *VR) send(m proto.Message) {
-	m.From = v.num
+	m.From = v.replicaNum
 	if m.Type != proto.Request {
-		m.ViewNum = v.ViewNum
+		m.ViewStamp.ViewNum = v.ViewStamp.ViewNum
 	}
 	v.messages = append(v.messages, m)
 }
@@ -321,21 +321,21 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 			panic("must be a valid state")
 		}
 		m.AppliedState = state
-		opNum, viewNum := state.Applied.OpNum, state.Applied.ViewNum
+		opNum, viewNum := state.Applied.ViewStamp.OpNum, state.Applied.ViewStamp.ViewNum
 		log.Printf("vr: %x [start op-number: %d, commit-number: %d] sent applied-number state[op-number: %d, view-number: %d] to %x [%s]",
-			v.num, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, window)
+			v.replicaNum, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, window)
 		window.delaySet(v.transitionTimeout)
 	} else {
 		m.Type = proto.Prepare
 		if typ != nil {
 			m.Type = typ[0]
 		}
-		m.OpNum = window.Next - 1
+		m.ViewStamp.OpNum = window.Next - 1
 		m.LogNum = v.opLog.viewNum(window.Next-1)
 		m.Entries = v.opLog.entries(window.Next)
 		m.CommitNum = v.opLog.commitNum
 		if n := len(m.Entries); window.Ack != 0 && n != 0 {
-			window.niceUpdate(m.Entries[n-1].OpNum)
+			window.niceUpdate(m.Entries[n-1].ViewStamp.OpNum)
 		} else if window.Ack == 0 {
 			window.delaySet(v.heartbeatTimeout)
 		}
@@ -370,7 +370,7 @@ func (v *VR) clockTransition() {
 	v.pulse++
 	if v.isTransitionTimeout() {
 		v.pulse = 0
-		v.Call(proto.Message{From: v.num, Type: proto.Change})
+		v.Call(proto.Message{From: v.replicaNum, Type: proto.Change})
 	}
 }
 
@@ -378,18 +378,18 @@ func (v *VR) clockHeartbeat() {
 	v.pulse++
 	if v.pulse >= v.heartbeatTimeout {
 		v.pulse = 0
-		v.Call(proto.Message{From: v.num, Type: proto.Heartbeat})
+		v.Call(proto.Message{From: v.replicaNum, Type: proto.Heartbeat})
 	}
 }
 
 func (v *VR) raising() bool {
-	_, ok := v.windows[v.num]
+	_, ok := v.windows[v.replicaNum]
 	return ok
 }
 
 func (v *VR) broadcastAppend() {
 	for num := range v.windows {
-		if num == v.num {
+		if num == v.replicaNum {
 			continue
 		}
 		v.sendAppend(num)
@@ -398,7 +398,7 @@ func (v *VR) broadcastAppend() {
 
 func (v *VR) broadcastHeartbeat() {
 	for num := range v.windows {
-		if num == v.num {
+		if num == v.replicaNum {
 			continue
 		}
 		v.sendHeartbeat(num)
@@ -408,39 +408,39 @@ func (v *VR) broadcastHeartbeat() {
 
 func change(v *VR) {
 	v.becomeReplica()
-	if v.quorums() == v.collect(v.num, true, Change) {
+	if v.quorums() == v.collect(v.replicaNum, true, Change) {
 		v.becomePrimary()
 		return
 	}
 	for num := range v.windows {
-		if num == v.num {
+		if num == v.replicaNum {
 			continue
 		}
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent START-VIEW-CHANGE request to %x at view-number %d",
-			v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum)
-		v.send(proto.Message{From: v.num, To: num, Type: proto.StartViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
+			v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum)
+		v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.StartViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 	}
 }
 
 func startViewChange(v *VR, m *proto.Message) {
-	num := v.num
+	num := v.replicaNum
 	view := true
 	if m != nil {
 		num = m.From
 	}
 	views := v.collect(num, view, StartViewChange)
-	if views == 1 && !v.take(v.num, Change) {
+	if views == 1 && !v.take(v.replicaNum, Change) {
 		for num := range v.windows {
-			if num == v.num {
+			if num == v.replicaNum {
 				continue
 			}
 			log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent START-VIEW-CHANGE request to %x at view-number %d",
-				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum)
-			v.send(proto.Message{From: v.num, To: num, Type: proto.StartViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum)
+			v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.StartViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		}
 	}
 	if v.quorum() == views {
-		log.Printf("vr: %x has received %d views, start send DO-VIEW-CHANGE message", v.num, views)
+		log.Printf("vr: %x has received %d views, start send DO-VIEW-CHANGE message", v.replicaNum, views)
 		doViewChange(v, m)
 	}
 }
@@ -448,28 +448,28 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.selected(v.ViewNum, v.windows); num != v.num {
+	if num := v.selected(v.ViewStamp, v.windows); num != v.replicaNum {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, windows: %d",
-				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum, len(v.windows))
-		v.send(proto.Message{From: v.num, To: num, Type: proto.DoViewChange, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, len(v.windows))
+		v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.DoViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		return
 	} else {
 		// If it is the primary node, first send yourself a DO-VIEW-CHANGE message.
-		v.collect(v.num, true, DoViewChange)
+		v.collect(v.replicaNum, true, DoViewChange)
 	}
-	num := v.num
+	num := v.replicaNum
 	view := true
 	if m != nil {
 		num = m.From
 	}
 	if v.quorums() == v.collect(num, view, DoViewChange) {
 		for num := range v.windows {
-			if num == v.num {
+			if num == v.replicaNum {
 				continue
 			}
 			log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent START-VIEW request to %x at view-number %d",
-				v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewNum)
-			v.send(proto.Message{From: v.num, To: num, Type: proto.StartView, OpNum: v.opLog.lastOpNum(), ViewNum: v.opLog.lastViewNum()})
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum)
+			v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.StartView, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		}
 		v.becomePrimary()
 		v.broadcastAppend()
@@ -485,13 +485,13 @@ func callPrimary(v *VR, m proto.Message) {
 		v.broadcastHeartbeat()
 	case proto.Request:
 		if len(m.Entries) == 0 {
-			log.Panicf("vr: %x called empty request", v.num)
+			log.Panicf("vr: %x called empty request", v.replicaNum)
 		}
 		v.appendEntry(m.Entries...)
 		v.broadcastAppend()
 	case proto.PrepareOk:
 		delay := v.windows[m.From].needDelay()
-		v.windows[m.From].update(m.OpNum)
+		v.windows[m.From].update(m.ViewStamp.OpNum)
 		if v.tryCommit() {
 			v.broadcastAppend()
 		} else if delay {
@@ -504,23 +504,23 @@ func callPrimary(v *VR, m proto.Message) {
 	case proto.StartViewChange, proto.DoViewChange:
 		// ignore message
 		log.Printf("vr: %x [log-view-number: %d, op-number: %d] ignore %s from %x [op-number: %d] at view-number %d",
-			v.num, v.opLog.lastViewNum(), v.opLog.lastOpNum(), m.Type, m.From, m.OpNum, m.ViewNum)
+			v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), m.Type, m.From, m.ViewStamp.OpNum, m.ViewStamp.ViewNum)
 	case proto.StartView:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.status = Normal
 	case proto.Recovery:
 		// TODO: verify the source
 		log.Printf("vr: %x received recovery (last-op-number: %d) from %x for op-number %d to recovery response",
-			v.num, m.X, m.From, m.OpNum)
-		if v.windows[m.From].tryDecTo(m.OpNum, m.Note) {
-			log.Printf("vr: %x decreased windows of %x to [%s]", v.num, m.From, v.windows[m.From])
+			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
+		if v.windows[m.From].tryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("vr: %x decreased windows of %x to [%s]", v.replicaNum, m.From, v.windows[m.From])
 			v.sendAppend(m.From, proto.RecoveryResponse)
 		}
 	case proto.GetState:
 		log.Printf("vr: %x received get state (last-op-number: %d) from %x for op-number %d to new state",
-			v.num, m.X, m.From, m.OpNum)
-		if v.windows[m.From].tryDecTo(m.OpNum, m.Note) {
-			log.Printf("v: %x decreased windows of %x to [%s], send new state", v.num, m.From, v.windows[m.From])
+			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
+		if v.windows[m.From].tryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("v: %x decreased windows of %x to [%s], send new state", v.replicaNum, m.From, v.windows[m.From])
 			v.sendAppend(m.From, proto.NewState)
 		}
 	}
@@ -529,18 +529,18 @@ func callPrimary(v *VR, m proto.Message) {
 func callReplica(v *VR, m proto.Message) {
 	switch m.Type {
 	case proto.Request:
-		log.Printf("vr: %x no primary (replica) at view-number %d; dropping request", v.num, v.ViewNum)
+		log.Printf("vr: %x no primary (replica) at view-number %d; dropping request", v.replicaNum, v.ViewStamp.ViewNum)
 		return
 	case proto.Prepare:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.handleAppend(m)
 		v.status = Normal
 	case proto.PrepareAppliedState:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.handleAppliedState(m)
 		v.status = Normal
 	case proto.Commit:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.handleHeartbeat(m)
 		v.status = Normal
 	case proto.StartViewChange:
@@ -548,7 +548,7 @@ func callReplica(v *VR, m proto.Message) {
 	case proto.DoViewChange:
 		doViewChange(v, &m)
 	case proto.StartView:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.status = Normal
 	}
 }
@@ -557,7 +557,7 @@ func callBackup(v *VR, m proto.Message) {
 	switch m.Type {
 	case proto.Request:
 		if v.prim == None {
-			log.Printf("vr: %x no primary (backup) at view-number %d; dropping request", v.num, v.ViewNum)
+			log.Printf("vr: %x no primary (backup) at view-number %d; dropping request", v.replicaNum, v.ViewStamp.ViewNum)
 			return
 		}
 		v.sendto(m, v.prim)
@@ -579,7 +579,7 @@ func callBackup(v *VR, m proto.Message) {
 		v.status = ViewChange
 		doViewChange(v, &m)
 	case proto.StartView:
-		v.becomeBackup(v.ViewNum, m.From)
+		v.becomeBackup(v.ViewStamp, m.From)
 		v.status = Normal
 	case proto.RecoveryResponse:
 		// TODO: do load balancing to reduce the pressure on the primary
@@ -596,47 +596,47 @@ func callBackup(v *VR, m proto.Message) {
 func (v *VR) appendEntry(entries ...proto.Entry) {
 	lo := v.opLog.lastOpNum()
 	for i := range entries {
-		entries[i].ViewNum = v.ViewNum
-		entries[i].OpNum = lo + uint64(i) + 1
+		entries[i].ViewStamp.ViewNum = v.ViewStamp.ViewNum
+		entries[i].ViewStamp.OpNum = lo + uint64(i) + 1
 	}
 	v.opLog.append(entries...)
-	v.windows[v.num].update(v.opLog.lastOpNum())
+	v.windows[v.replicaNum].update(v.opLog.lastOpNum())
 	// TODO need check return value?
 	v.tryCommit()
 }
 
 func (v *VR) handleAppend(m proto.Message) {
-	msgLastOpNum, ok := v.opLog.tryAppend(m.OpNum, m.LogNum, m.CommitNum, m.Entries...);
+	msgLastOpNum, ok := v.opLog.tryAppend(m.ViewStamp.OpNum, m.LogNum, m.CommitNum, m.Entries...);
 	if ok {
-		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: msgLastOpNum})
+		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, ViewStamp: proto.ViewStamp{OpNum: msgLastOpNum}})
 		return
 	}
 	switch v.status {
 	case Normal:
 		log.Printf("vr: %x normal state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
-			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
-		v.send(proto.Message{To: m.From, Type: proto.GetState, OpNum: m.OpNum, Note: v.opLog.lastOpNum()})
+			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
+		v.send(proto.Message{To: m.From, Type: proto.GetState, ViewStamp: proto.ViewStamp{OpNum: m.ViewStamp.OpNum}, Note: v.opLog.lastOpNum()})
 	case Recovering:
 		log.Printf("vr: %x recovering state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
-			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
-		v.send(proto.Message{To: m.From, Type: proto.Recovery, OpNum: m.OpNum, X: v.seq, Note: v.opLog.lastOpNum()})
+			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
+		v.send(proto.Message{To: m.From, Type: proto.Recovery, ViewStamp: proto.ViewStamp{OpNum: m.ViewStamp.OpNum}, X: v.seq, Note: v.opLog.lastOpNum()})
 	default:
 		log.Printf("vr: %x [log-number: %d, op-number: %d] ignored prepare [log-number: %d, op-number: %d] from %x",
-			v.num, v.opLog.viewNum(m.OpNum), m.OpNum, m.LogNum, m.OpNum, m.From)
+			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
 	}
 }
 
 func (v *VR) handleAppliedState(m proto.Message) {
-	opNum, viewNum := m.AppliedState.Applied.OpNum, m.AppliedState.Applied.ViewNum
+	opNum, viewNum := m.AppliedState.Applied.ViewStamp.OpNum, m.AppliedState.Applied.ViewStamp.ViewNum
 	if v.recover(m.AppliedState) {
 		log.Printf("vr: %x [commit-number: %d] recovered applied state [op-number: %d, view-number: %d]",
-			v.num, v.CommitNum, opNum, viewNum)
-		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.lastOpNum()})
+			v.replicaNum, v.CommitNum, opNum, viewNum)
+		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, ViewStamp: proto.ViewStamp{OpNum: v.opLog.lastOpNum()}})
 		return
 	}
 	log.Printf("vr: %x [commit-number: %d] ignored applied state [op-number: %d, view-number: %d]",
-		v.num, v.CommitNum, opNum, viewNum)
-	v.send(proto.Message{To: m.From, Type: proto.PrepareOk, OpNum: v.opLog.commitNum})
+		v.replicaNum, v.CommitNum, opNum, viewNum)
+	v.send(proto.Message{To: m.From, Type: proto.PrepareOk, ViewStamp: proto.ViewStamp{OpNum: v.opLog.commitNum}})
 }
 
 func (v *VR) handleHeartbeat(m proto.Message) {
@@ -668,10 +668,10 @@ func (v *VR) replicas() []uint64 {
 func (v *VR) loadHardState(hs proto.HardState) {
 	if hs.CommitNum < v.opLog.commitNum || hs.CommitNum > v.opLog.lastOpNum() {
 		log.Panicf("vr: %x commit-number %d is out of range [%d, %d]",
-			v.num, hs.CommitNum, v.opLog.commitNum, v.opLog.lastOpNum())
+			v.replicaNum, hs.CommitNum, v.opLog.commitNum, v.opLog.lastOpNum())
 	}
 	v.opLog.commitNum = hs.CommitNum
-	v.ViewNum = hs.ViewNum
+	v.ViewStamp.ViewNum = hs.ViewStamp.ViewNum
 	v.CommitNum = hs.CommitNum
 }
 
@@ -707,17 +707,17 @@ func (v *VR) isTransitionTimeout() bool {
 }
 
 func (v *VR) recover(as proto.AppliedState) bool {
-	if as.Applied.OpNum <= v.opLog.commitNum {
+	if as.Applied.ViewStamp.OpNum <= v.opLog.commitNum {
 		return false
 	}
-	if v.opLog.checkNum(as.Applied.OpNum, as.Applied.ViewNum) {
+	if v.opLog.checkNum(as.Applied.ViewStamp.OpNum, as.Applied.ViewStamp.ViewNum) {
 		log.Printf("vr: %x [commit-number: %d, last-op-number: %d, last-view-number: %d] skip commit to applied state [op-number: %d, view-number: %d]",
-			v.num, v.CommitNum, v.opLog.lastOpNum(), v.opLog.lastViewNum(), as.Applied.OpNum, as.Applied.ViewNum)
-		v.opLog.commitTo(as.Applied.OpNum)
+			v.replicaNum, v.CommitNum, v.opLog.lastOpNum(), v.opLog.lastViewNum(), as.Applied.ViewStamp.OpNum, as.Applied.ViewStamp.ViewNum)
+		v.opLog.commitTo(as.Applied.ViewStamp.OpNum)
 		return false
 	}
 	log.Printf("vr: %x [commit-number: %d, last-op-number: %d, last-view-number: %d] starts to recover applied state [op-number: %d, view-number: %d]",
-		v.num, v.CommitNum, v.opLog.lastOpNum(), v.opLog.lastViewNum(), as.Applied.OpNum, as.Applied.ViewNum)
+		v.replicaNum, v.CommitNum, v.opLog.lastOpNum(), v.opLog.lastViewNum(), as.Applied.ViewStamp.OpNum, as.Applied.ViewStamp.ViewNum)
 	v.opLog.recover(as)
 	return true
 }

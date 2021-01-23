@@ -3,7 +3,7 @@ package vr
 import (
 	"context"
 	"testing"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 func BenchmarkSingleReplica(b *testing.B) {

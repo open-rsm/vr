@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"io/ioutil"
 	"math/rand"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 type Node interface {
@@ -71,7 +71,7 @@ func (m *mock) build(index int, node Node, n int) error {
 	case *faker:
 		m.nodes[num] = v
 	case *VR:
-		v.num = num
+		v.replicaNum = num
 		v.windows = make(map[uint64]*Window)
 		for i := 0; i < n; i++ {
 			v.windows[m.numbers[i]] = &Window{}
@@ -188,7 +188,7 @@ func numberBySize(size int) []uint64 {
 func entries(viewNums ...uint64) *VR {
 	s := NewStore()
 	for i, viewNum := range viewNums {
-		s.Append([]proto.Entry{{OpNum: uint64(i + 1), ViewNum: viewNum}})
+		s.Append([]proto.Entry{{ViewStamp: proto.ViewStamp{OpNum: uint64(i + 1), ViewNum: viewNum}}})
 	}
 	vr := newVR(&Config{
 		Num:               1,

@@ -1,6 +1,6 @@
 package vr
 
-import "github.com/open-rsm/spec/proto"
+import "github.com/open-rsm/vr/proto"
 
 type uint64s []uint64
 
@@ -47,11 +47,11 @@ func IsInvalidHardState(hs proto.HardState) bool {
 }
 
 func IsInvalidAppliedState(as proto.AppliedState) bool {
-	return as.Applied.OpNum == 0
+	return as.Applied.ViewStamp.OpNum == 0
 }
 
 func hardStateCompare(a, b proto.HardState) bool {
-	return a.ViewNum == b.ViewNum && a.CommitNum == b.CommitNum
+	return a.ViewStamp.ViewNum == b.ViewStamp.ViewNum && a.CommitNum == b.CommitNum
 }
 
 func limitSize(entries []proto.Entry, maxSize uint64) []proto.Entry {

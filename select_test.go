@@ -3,6 +3,7 @@ package vr
 import (
 	"fmt"
 	"testing"
+	"github.com/open-rsm/vr/proto"
 )
 
 func testRoundRobin() error {
@@ -14,19 +15,19 @@ func testRoundRobin() error {
 		return windows
 	}
 	cases := []struct {
-		viewNum uint64
+		vs      proto.ViewStamp
 		peers   []uint64
 		windows func([]uint64) map[uint64]*Window
 		expNum  uint64
 	}{
-		{replicaD,[]uint64{replicaA}, buildWindows,replicaA},
-		{replicaC,[]uint64{replicaA, replicaB, replicaC}, buildWindows, replicaA},
-		{replicaB,[]uint64{replicaA, replicaD}, buildWindows, replicaA},
-		{replicaC,[]uint64{replicaA, replicaC}, buildWindows, replicaA},
+		{proto.ViewStamp{ViewNum:replicaD},[]uint64{replicaA}, buildWindows,replicaA},
+		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaB, replicaC}, buildWindows, replicaA},
+		{proto.ViewStamp{ViewNum:replicaB},[]uint64{replicaA, replicaD}, buildWindows, replicaA},
+		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaC}, buildWindows, replicaA},
 	}
 	for i, test := range cases {
 		windows := test.windows(test.peers)
-		if rv := roundRobin(test.viewNum, windows); rv != test.expNum {
+		if rv := roundRobin(test.vs, windows); rv != test.expNum {
 			return fmt.Errorf("#%d: round_robin = %v, expected %v", i, rv, test.expNum)
 		}
 	}

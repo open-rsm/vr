@@ -1,6 +1,6 @@
 package vr
 
-import "github.com/open-rsm/spec/proto"
+import "github.com/open-rsm/vr/proto"
 
 func applyToStore([]proto.Entry)      {}
 func sendMessages([]proto.Message)     {}

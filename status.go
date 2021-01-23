@@ -3,7 +3,7 @@ package vr
 import (
 	"log"
 	"encoding/json"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 // provide the current status of the replication group
@@ -21,7 +21,7 @@ type Status struct {
 
 // build and package status
 func getStatus(vr *VR) Status {
-	s := Status{Num: vr.num}
+	s := Status{Num: vr.replicaNum}
 	s.HardState = vr.HardState
 	s.SoftState = *vr.softState()
 	s.AppliedNum = vr.opLog.appliedNum

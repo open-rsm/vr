@@ -4,7 +4,7 @@ import (
 	"log"
 	"errors"
 	"context"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 var (
@@ -31,7 +31,7 @@ type Replicator interface {
 func StartReplica(c *Config) Replicator {
 	rc := newReplica()
 	vr := newVR(c)
-	vr.becomeBackup(One, None)
+	vr.becomeBackup(proto.ViewStamp{ViewNum:One}, None)
 	vr.opLog.commitNum = vr.opLog.lastOpNum()
 	vr.CommitNum = vr.opLog.commitNum
 	for _, num := range c.Peers {
@@ -94,13 +94,13 @@ func (r *replica) cycle(vr *VR) {
 		if prim != vr.prim {
 			if vr.existPrimary() {
 				if prim == None {
-					log.Printf("vr.replica: %x change primary %x at view-number %d", vr.num, vr.prim, vr.ViewNum)
+					log.Printf("vr.replica: %x change primary %x at view-number %d", vr.replicaNum, vr.prim, vr.ViewStamp.ViewNum)
 				} else {
-					log.Printf("vr.replica: %x changed primary from %x to %x at view-number %d", vr.num, prim, vr.prim, vr.ViewNum)
+					log.Printf("vr.replica: %x changed primary from %x to %x at view-number %d", vr.replicaNum, prim, vr.prim, vr.ViewStamp.ViewNum)
 				}
 				requestC = r.requestC
 			} else {
-				log.Printf("vr.replica: %x faulty primary %x at view-number %d", vr.num, prim, vr.ViewNum)
+				log.Printf("vr.replica: %x faulty primary %x at view-number %d", vr.replicaNum, prim, vr.ViewStamp.ViewNum)
 				requestC = nil
 			}
 			prim = vr.prim
@@ -117,7 +117,7 @@ func (r *replica) cycle(vr *VR) {
 		}
 		select {
 		case m := <-requestC:
-			m.From = vr.num
+			m.From = vr.replicaNum
 			vr.Call(m)
 		case m := <-r.receiveC:
 			if _, ok := vr.windows[m.From]; ok || !IsReplyMessage(m) {
@@ -129,8 +129,8 @@ func (r *replica) cycle(vr *VR) {
 			vr.clock()
 		case readyC <- rd:
 			if n := len(rd.PersistentEntries); n > 0 {
-				prevUnsafeOpNum = rd.PersistentEntries[n-1].OpNum
-				prevUnsafeViewNum = rd.PersistentEntries[n-1].ViewNum
+				prevUnsafeOpNum = rd.PersistentEntries[n-1].ViewStamp.OpNum
+				prevUnsafeViewNum = rd.PersistentEntries[n-1].ViewStamp.ViewNum
 				needToSafe = true
 			}
 			if rd.SoftState != nil {
@@ -140,7 +140,7 @@ func (r *replica) cycle(vr *VR) {
 				prevHardState = rd.HardState
 			}
 			if !IsInvalidAppliedState(rd.AppliedState) {
-				prevAppliedStateOpNum = rd.AppliedState.Applied.OpNum
+				prevAppliedStateOpNum = rd.AppliedState.Applied.ViewStamp.OpNum
 			}
 			vr.messages = nil
 			advanceC = r.advanceC

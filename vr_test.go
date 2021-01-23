@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 const (
@@ -36,6 +36,40 @@ func requestMessageEmptyEntries(from, to uint64) proto.Message {
 	return proto.Message{From: from, To: to, Type: proto.Request, Entries: []proto.Entry{{}}}
 }
 
+var (
+	v0o1,v1o1,v1o2,v1o3,v1o4,v1o5,v1o6,v1o7,v2o0,v2o2,v2o4,v2o5,v2o6,v2o7,v2o8,v3o2,v2o1,v2o3,v3o3,
+	v3o4,v4o3,v4o4,v4o5,v4o6,v4o1,v4o2 proto.ViewStamp
+)
+
+func initViewStampCase()  {
+	v0o1 = proto.ViewStamp{ViewNum: 0, OpNum: 1}
+	v1o1 = proto.ViewStamp{ViewNum: 1, OpNum: 1}
+	v1o2 = proto.ViewStamp{ViewNum: 1, OpNum: 2}
+	v1o3 = proto.ViewStamp{ViewNum: 1, OpNum: 3}
+	v1o4 = proto.ViewStamp{ViewNum: 1, OpNum: 4}
+	v1o5 = proto.ViewStamp{ViewNum: 1, OpNum: 5}
+	v1o6 = proto.ViewStamp{ViewNum: 1, OpNum: 6}
+	v1o7 = proto.ViewStamp{ViewNum: 1, OpNum: 7}
+	v2o0 = proto.ViewStamp{ViewNum: 2, OpNum: 0}
+	v2o2 = proto.ViewStamp{ViewNum: 2, OpNum: 2}
+	v2o4 = proto.ViewStamp{ViewNum: 2, OpNum: 4}
+	v2o5 = proto.ViewStamp{ViewNum: 2, OpNum: 5}
+	v2o6 = proto.ViewStamp{ViewNum: 2, OpNum: 6}
+	v2o7 = proto.ViewStamp{ViewNum: 2, OpNum: 7}
+	v2o8 = proto.ViewStamp{ViewNum: 2, OpNum: 8}
+	v3o2 = proto.ViewStamp{ViewNum: 3, OpNum: 2}
+	v3o4 = proto.ViewStamp{ViewNum: 3, OpNum: 4}
+	v2o1 = proto.ViewStamp{ViewNum: 2, OpNum: 1}
+	v2o3 = proto.ViewStamp{ViewNum: 2, OpNum: 3}
+	v3o3 = proto.ViewStamp{ViewNum: 3, OpNum: 3}
+	v4o3 = proto.ViewStamp{ViewNum: 4, OpNum: 3}
+	v4o4 = proto.ViewStamp{ViewNum: 4, OpNum: 4}
+	v4o5 = proto.ViewStamp{ViewNum: 4, OpNum: 5}
+	v4o6 = proto.ViewStamp{ViewNum: 4, OpNum: 6}
+	v4o1 = proto.ViewStamp{ViewNum: 4, OpNum: 1}
+	v4o2 = proto.ViewStamp{ViewNum: 4, OpNum: 2}
+}
+
 func TestPrimaryChange(t *testing.T) {
 	cases := []struct {
 		*mock
@@ -54,7 +88,7 @@ func TestPrimaryChange(t *testing.T) {
 		if peer.role != test.role {
 			t.Errorf("#%d: role = %s, expected %s", i, roleName[peer.role], roleName[test.role])
 		}
-		if vn := peer.ViewNum; vn != 1 {
+		if vn := peer.ViewStamp.ViewNum; vn != 1 {
 			t.Errorf("#%d: view-number = %d, expected %d", i, vn, 1)
 		}
 	}
@@ -132,6 +166,7 @@ func TestLogReplication(t *testing.T) {
 }
 
 func TestRequest(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		*mock
 		success bool
@@ -161,7 +196,7 @@ func TestRequest(t *testing.T) {
 		if test.success {
 			expectedLog = &opLog{
 				store: &Store{
-					entries: []proto.Entry{{}, {Data: nil, ViewNum: 1, OpNum: 1}, {ViewNum: 1, OpNum: 2, Data: data}},
+					entries: []proto.Entry{{}, {Data: nil, ViewStamp:v1o1}, {ViewStamp:v1o2, Data: data}},
 				},
 				unsafe:    unsafe{offset: 3},
 				commitNum: 2}
@@ -178,40 +213,41 @@ func TestRequest(t *testing.T) {
 			}
 		}
 		peer := test.mock.peers(1)
-		if vn := peer.ViewNum; vn != 1 {
+		if vn := peer.ViewStamp.ViewNum; vn != 1 {
 			t.Errorf("#%d: view-number = %d, expected %d", j, vn, 1)
 		}
 	}
 }
 
 func TestCommit(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		offsets []uint64
 		entries []proto.Entry
 		viewNum uint64
 		exp     uint64
 	}{
-		{[]uint64{1},[]proto.Entry{{OpNum: 1, ViewNum: 1}},1,1},
-		{[]uint64{1},[]proto.Entry{{OpNum: 1, ViewNum: 1}},2,0},
-		{[]uint64{2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},2,2},
-		{[]uint64{1},[]proto.Entry{{OpNum: 1, ViewNum: 2}},2,1},
+		{[]uint64{1},[]proto.Entry{{ViewStamp:v1o1}},1,1},
+		{[]uint64{1},[]proto.Entry{{ViewStamp:v1o1}},2,0},
+		{[]uint64{2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},2,2},
+		{[]uint64{1},[]proto.Entry{{ViewStamp:v2o1}},2,1},
 
-		{[]uint64{2, 1, 1},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},1,1},
-		{[]uint64{2, 1, 1},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 1}},2,0},
-		{[]uint64{2, 1, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},2,2},
-		{[]uint64{2, 1, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 1}},2,0},
+		{[]uint64{2, 1, 1},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},1,1},
+		{[]uint64{2, 1, 1},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}},2,0},
+		{[]uint64{2, 1, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},2,2},
+		{[]uint64{2, 1, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}},2,0},
 
-		{[]uint64{2, 1, 1, 1},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},1,1},
-		{[]uint64{2, 1, 1, 1},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 1}},2,0},
-		{[]uint64{2, 1, 1, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},1,1},
-		{[]uint64{2, 1, 1, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 1}},2,0},
-		{[]uint64{2, 1, 2, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},2,2},
-		{[]uint64{2, 1, 2, 2},[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 1}},2,0},
+		{[]uint64{2, 1, 1, 1},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},1,1},
+		{[]uint64{2, 1, 1, 1},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}},2,0},
+		{[]uint64{2, 1, 1, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},1,1},
+		{[]uint64{2, 1, 1, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}},2,0},
+		{[]uint64{2, 1, 2, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}},2,2},
+		{[]uint64{2, 1, 2, 2},[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}},2,0},
 	}
 	for i, test := range cases {
 		store := NewStore()
 		store.Append(test.entries)
-		store.hardState = proto.HardState{ViewNum: test.viewNum}
+		store.hardState = proto.HardState{ViewStamp:proto.ViewStamp{ViewNum: test.viewNum}}
 		vr := newVR(&Config{
 			Num:               1,
 			Peers:             []uint64{1},
@@ -282,35 +318,36 @@ func TestCallIgnoreLateViewNumMessage(t *testing.T) {
 		AppliedNum:        0,
 	})
 	vr.call = fakeCall
-	vr.ViewNum = 2
-	vr.Call(proto.Message{Type: proto.Prepare, ViewNum: vr.ViewNum - 1})
+	vr.ViewStamp.ViewNum = 2
+	vr.Call(proto.Message{Type: proto.Prepare, ViewStamp:proto.ViewStamp{ViewNum: vr.ViewStamp.ViewNum - 1}})
 	if called == true {
 		t.Errorf("call function called = %v , expected %v", called, false)
 	}
 }
 
 func TestHandleMessagePrepare(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		m            proto.Message
 		expOpNum     uint64
 		expCommitNum uint64
 		expIgnore    bool
 	}{
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 2, CommitNum: 3},2,0,true},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 3, OpNum: 3, CommitNum: 3},2,0,true},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 1, OpNum: 1, CommitNum: 1},2,1,false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 0, OpNum: 0, CommitNum: 1, Entries: []proto.Entry{{OpNum: 1, ViewNum: 2}}},1, 1,false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 2, OpNum: 2, CommitNum: 3, Entries: []proto.Entry{{OpNum: 3, ViewNum: 2}, {OpNum: 4, ViewNum: 2}}},4, 3, false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 2, OpNum: 2, CommitNum: 4, Entries: []proto.Entry{{OpNum: 3, ViewNum: 2}}},3, 3,false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 1, OpNum: 1, CommitNum: 4, Entries: []proto.Entry{{OpNum: 2, ViewNum: 2}}},2, 2,false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 1, LogNum: 1, OpNum: 1, CommitNum: 3},2,1, false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 1, LogNum: 1, OpNum: 1, CommitNum: 3, Entries: []proto.Entry{{OpNum: 2, ViewNum: 2}}},2,2,false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 2, OpNum: 2, CommitNum: 3},2,2, false},
-		{proto.Message{Type: proto.Prepare, ViewNum: 2, LogNum: 2, OpNum: 2, CommitNum: 4},2,2, false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o2, LogNum: 3, CommitNum: 3},2,0,true},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o3, LogNum: 3, CommitNum: 3},2,0,true},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o1, LogNum: 1, CommitNum: 1},2,1,false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o0, LogNum: 0, CommitNum: 1, Entries: []proto.Entry{{ViewStamp:v2o1}}},1, 1,false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o2, LogNum: 2, CommitNum: 3, Entries: []proto.Entry{{ViewStamp:v2o3}, {ViewStamp:v2o4}}},4, 3, false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o2, LogNum: 2, CommitNum: 4, Entries: []proto.Entry{{ViewStamp:v2o3}}},3, 3,false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o1, LogNum: 1, CommitNum: 4, Entries: []proto.Entry{{ViewStamp:v2o2}}},2, 2,false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v1o1, LogNum: 1, CommitNum: 3},2,1, false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v1o1, LogNum: 1, CommitNum: 3, Entries: []proto.Entry{{ViewStamp:v2o2}}},2,2,false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o2, LogNum: 2, CommitNum: 3},2,2, false},
+		{proto.Message{Type: proto.Prepare, ViewStamp:v2o2, LogNum: 2, CommitNum: 4},2,2, false},
 	}
 	for i, test := range cases {
 		store := NewStore()
-		store.Append([]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}})
+		store.Append([]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}})
 		vr := newVR(&Config{
 			Num:               1,
 			Peers:             []uint64{1},
@@ -319,7 +356,7 @@ func TestHandleMessagePrepare(t *testing.T) {
 			Store:             store,
 			AppliedNum:        0,
 		})
-		vr.becomeBackup(2, None)
+		vr.becomeBackup(proto.ViewStamp{ViewNum:2}, None)
 		vr.handleAppend(test.m)
 		if vr.opLog.lastOpNum() != test.expOpNum {
 			t.Errorf("#%d: last op-number = %d, expected %d", i, vr.opLog.lastOpNum(), test.expOpNum)
@@ -338,17 +375,18 @@ func TestHandleMessagePrepare(t *testing.T) {
 }
 
 func TestHandleHeartbeat(t *testing.T) {
+	initViewStampCase()
 	commitNum := uint64(2)
 	cases := []struct {
 		m            proto.Message
 		expCommitNum uint64
 	}{
-		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, CommitNum: commitNum + 1}, commitNum + 1},
-		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, CommitNum: commitNum - 1}, commitNum},
+		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewStamp:proto.ViewStamp{ViewNum: 2}, CommitNum: commitNum + 1}, commitNum + 1},
+		{proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewStamp:proto.ViewStamp{ViewNum: 2}, CommitNum: commitNum - 1}, commitNum},
 	}
 	for i, test := range cases {
 		store := NewStore()
-		store.Append([]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}})
+		store.Append([]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}})
 		vr := newVR(&Config{
 			Num:               replicaA,
 			Peers:             []uint64{1},
@@ -357,7 +395,7 @@ func TestHandleHeartbeat(t *testing.T) {
 			Store:             store,
 			AppliedNum:        0,
 		})
-		vr.becomeBackup(2, replicaB)
+		vr.becomeBackup(proto.ViewStamp{ViewNum:2}, replicaB)
 		vr.opLog.commitTo(commitNum)
 		vr.handleHeartbeat(test.m)
 		if vr.opLog.commitNum != test.expCommitNum {
@@ -374,8 +412,9 @@ func TestHandleHeartbeat(t *testing.T) {
 }
 
 func TestHandleCommitOk(t *testing.T) {
+	initViewStampCase()
 	store := NewStore()
-	store.Append([]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}})
+	store.Append([]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}})
 	vr := newVR(&Config{
 		Num:               1,
 		Peers:             []uint64{1, 2},
@@ -415,7 +454,7 @@ func TestHandleCommitOk(t *testing.T) {
 	vr.Call(proto.Message{
 		From:  2,
 		Type:  proto.PrepareOk,
-		OpNum: msgs[1].OpNum + uint64(len(msgs[1].Entries)),
+		ViewStamp:proto.ViewStamp{OpNum: msgs[1].ViewStamp.OpNum + uint64(len(msgs[1].Entries))},
 	})
 	vr.handleMessages()
 	vr.broadcastHeartbeat()
@@ -445,7 +484,7 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 	vr.Call(proto.Message{
 		From:  2,
 		Type:  proto.PrepareOk,
-		OpNum: 1,
+		ViewStamp:proto.ViewStamp{OpNum:1},
 	})
 	if vr.CommitNum != 1 {
 		t.Fatalf("expecteded commit-number to be 1, got %d", vr.CommitNum)
@@ -463,13 +502,13 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 	if msgs[0].Type != proto.Prepare || msgs[0].To != 2 {
 		t.Errorf("expecteded prepare to replica 2, got %s to %d", msgs[0].Type, msgs[0].To)
 	}
-	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].OpNum != 2 {
+	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].ViewStamp.OpNum != 2 {
 		t.Errorf("expecteded to trigger entry 2, but got %v", msgs[0].Entries)
 	}
 	vr.Call(proto.Message{
 		From:  3,
 		Type:  proto.PrepareOk,
-		OpNum: 1,
+		ViewStamp:proto.ViewStamp{OpNum:1},
 	})
 	msgs = vr.handleMessages()
 	if len(msgs) != 1 {
@@ -478,7 +517,7 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 	if msgs[0].Type != proto.Prepare || msgs[0].To != 3 {
 		t.Errorf("expecteded message prepare to replica 3, got %s to %d", msgs[0].Type, msgs[0].To)
 	}
-	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].OpNum != 2 {
+	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].ViewStamp.OpNum != 2 {
 		t.Errorf("expecteded to trigger entry 2, but got %v", msgs[0].Entries)
 	}
 }
@@ -523,14 +562,14 @@ func TestStateTransition(t *testing.T) {
 			vr.role = test.from
 			switch test.to {
 			case Backup:
-				vr.becomeBackup(test.expViewNum, test.expPrim)
+				vr.becomeBackup(proto.ViewStamp{ViewNum:test.expViewNum}, test.expPrim)
 			case Replica:
 				vr.becomeReplica()
 			case Primary:
 				vr.becomePrimary()
 			}
-			if vr.ViewNum != test.expViewNum {
-				t.Errorf("%d: view-number = %d, expected %d", i, vr.ViewNum, test.expViewNum)
+			if vr.ViewStamp.ViewNum != test.expViewNum {
+				t.Errorf("%d: view-number = %d, expected %d", i, vr.ViewStamp.ViewNum, test.expViewNum)
 			}
 			if vr.prim != test.expPrim {
 				t.Errorf("%d: prim = %d, expected %d", i, vr.prim, test.expPrim)
@@ -563,7 +602,7 @@ func TestAllServerCallDown(t *testing.T) {
 		})
 		switch test.role {
 		case Backup:
-			vr.becomeBackup(1, None)
+			vr.becomeBackup(proto.ViewStamp{ViewNum:1}, None)
 		case Replica:
 			vr.becomeReplica()
 		case Primary:
@@ -571,13 +610,13 @@ func TestAllServerCallDown(t *testing.T) {
 			vr.becomePrimary()
 		}
 		for j, msgType := range msgTypes {
-			vr.Call(proto.Message{From: 2, Type: msgType, ViewNum: viewNum})
+			vr.Call(proto.Message{From: 2, Type: msgType, ViewStamp:proto.ViewStamp{ViewNum: viewNum}})
 
 			if vr.role != test.expRole {
 				t.Errorf("#%d.%d role = %v, expected %v", i, j, vr.role, test.expRole)
 			}
-			if vr.ViewNum != test.expViewNum {
-				t.Errorf("#%d.%d view-number = %v, expected %v", i, j, vr.ViewNum, test.expViewNum)
+			if vr.ViewStamp.ViewNum != test.expViewNum {
+				t.Errorf("#%d.%d view-number = %v, expected %v", i, j, vr.ViewStamp.ViewNum, test.expViewNum)
 			}
 			if uint64(vr.opLog.lastOpNum()) != test.expOpNum {
 				t.Errorf("#%d.%d op-number = %v, expected %v", i, j, vr.opLog.lastOpNum(), test.expOpNum)
@@ -594,6 +633,7 @@ func TestAllServerCallDown(t *testing.T) {
 }
 
 func TestPrimaryPrepareOk(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		opNum        uint64
 		expOffset    uint64
@@ -615,13 +655,13 @@ func TestPrimaryPrepareOk(t *testing.T) {
 			AppliedNum:        0,
 		})
 		vr.opLog = &opLog{
-			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}},
+			store:  &Store{entries: []proto.Entry{{}, {ViewStamp:v0o1}, {ViewStamp:v1o2}}},
 			unsafe: unsafe{offset: 3},
 		}
 		vr.becomeReplica()
 		vr.becomePrimary()
 		vr.handleMessages()
-		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
+		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
 		window := vr.windows[replicaB]
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
@@ -634,8 +674,8 @@ func TestPrimaryPrepareOk(t *testing.T) {
 			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
 		}
 		for j, msg := range msgs {
-			if msg.OpNum != test.expOpNum {
-				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.OpNum, test.expOpNum)
+			if msg.ViewStamp.OpNum != test.expOpNum {
+				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.ViewStamp.OpNum, test.expOpNum)
 			}
 			if msg.CommitNum != test.expCommitNum {
 				t.Errorf("#%d.%d commit-number = %d, expected %d", i, j, msg.CommitNum, test.expCommitNum)
@@ -645,6 +685,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 }
 
 func TestPrimaryRecovery(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		opNum        uint64
 		Type         proto.MessageType
@@ -667,13 +708,13 @@ func TestPrimaryRecovery(t *testing.T) {
 			AppliedNum:        0,
 		})
 		vr.opLog = &opLog{
-			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}},
+			store:  &Store{entries: []proto.Entry{{}, {ViewStamp:v0o1}, {ViewStamp:v1o2}}},
 			unsafe: unsafe{offset: 3},
 		}
 		vr.becomeReplica()
 		vr.becomePrimary()
 		vr.handleMessages()
-		vr.Call(proto.Message{From: replicaB, Type: test.Type, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
+		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
 		window := vr.windows[replicaB]
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
@@ -686,8 +727,8 @@ func TestPrimaryRecovery(t *testing.T) {
 			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
 		}
 		for j, msg := range msgs {
-			if msg.OpNum != test.expOpNum {
-				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.OpNum, test.expOpNum)
+			if msg.ViewStamp.OpNum != test.expOpNum {
+				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.ViewStamp.OpNum, test.expOpNum)
 			}
 			if msg.CommitNum != test.expCommitNum {
 				t.Errorf("#%d.%d commit-number = %d, expected %d", i, j, msg.CommitNum, test.expCommitNum)
@@ -697,6 +738,7 @@ func TestPrimaryRecovery(t *testing.T) {
 }
 
 func TestPrimaryGetState(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		opNum        uint64
 		Type         proto.MessageType
@@ -719,13 +761,13 @@ func TestPrimaryGetState(t *testing.T) {
 			AppliedNum:        0,
 		})
 		vr.opLog = &opLog{
-			store:  &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}},
+			store:  &Store{entries: []proto.Entry{{}, {ViewStamp:v0o1}, {ViewStamp:v1o2}}},
 			unsafe: unsafe{offset: 3},
 		}
 		vr.becomeReplica()
 		vr.becomePrimary()
 		vr.handleMessages()
-		vr.Call(proto.Message{From: replicaB, Type: test.Type, OpNum: test.opNum, ViewNum: vr.ViewNum, Note: test.opNum})
+		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
 		window := vr.windows[replicaB]
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
@@ -738,8 +780,8 @@ func TestPrimaryGetState(t *testing.T) {
 			t.Errorf("#%d message number = %d, expected %d", i, len(msgs), test.expMsgNum)
 		}
 		for j, msg := range msgs {
-			if msg.OpNum != test.expOpNum {
-				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.OpNum, test.expOpNum)
+			if msg.ViewStamp.OpNum != test.expOpNum {
+				t.Errorf("#%d.%d op-number = %d, expected %d", i, j, msg.ViewStamp.OpNum, test.expOpNum)
 			}
 			if msg.CommitNum != test.expCommitNum {
 				t.Errorf("#%d.%d commit-number = %d, expected %d", i, j, msg.CommitNum, test.expCommitNum)
@@ -752,8 +794,7 @@ func TestBroadcastHeartbeat(t *testing.T) {
 	offset := uint64(1000)
 	as := proto.AppliedState{
 		Applied: proto.Applied{
-			OpNum: offset,
-			ViewNum: 1,
+			ViewStamp:proto.ViewStamp{ViewNum: 1, OpNum: offset},
 			// configure nodes node
 		},
 	}
@@ -768,11 +809,11 @@ func TestBroadcastHeartbeat(t *testing.T) {
 		Store:             store,
 		AppliedNum:        0,
 	})
-	vr.ViewNum = 1
+	vr.ViewStamp.ViewNum = 1
 	vr.becomeReplica()
 	vr.becomePrimary()
 	for i := 0; i < 10; i++ {
-		vr.appendEntry(proto.Entry{OpNum: uint64(i) + 1})
+		vr.appendEntry(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: uint64(i) + 1}})
 	}
 	vr.windows[replicaB].Ack, vr.windows[replicaB].Next = 5, 6
 	vr.windows[replicaC].Ack, vr.windows[replicaC].Next = vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1
@@ -789,8 +830,8 @@ func TestBroadcastHeartbeat(t *testing.T) {
 		if m.Type != proto.Commit {
 			t.Fatalf("#%d: type = %v, expected = %v", i, m.Type, proto.Commit)
 		}
-		if m.OpNum != 0 {
-			t.Fatalf("#%d: prev op-number = %d, expected %d", i, m.OpNum, 0)
+		if m.ViewStamp.OpNum != 0 {
+			t.Fatalf("#%d: prev op-number = %d, expected %d", i, m.ViewStamp.OpNum, 0)
 		}
 		if expectedCommitMap[m.To] == 0 {
 			t.Fatalf("#%d: unexpecteded to %d", i, m.To)
@@ -807,6 +848,7 @@ func TestBroadcastHeartbeat(t *testing.T) {
 }
 
 func TestReceiveMessageHeartbeat(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		role   role
 		expMsg int
@@ -824,8 +866,8 @@ func TestReceiveMessageHeartbeat(t *testing.T) {
 			Store:             NewStore(),
 			AppliedNum:        0,
 		})
-		vr.opLog = &opLog{store: &Store{entries: []proto.Entry{{}, {OpNum: 1, ViewNum: 0}, {OpNum: 2, ViewNum: 1}}}}
-		vr.ViewNum = 1
+		vr.opLog = &opLog{store: &Store{entries: []proto.Entry{{}, {ViewStamp:v0o1}, {ViewStamp:v1o2}}}}
+		vr.ViewStamp.ViewNum = 1
 		vr.role = test.role
 		switch test.role {
 		case Backup:
@@ -849,7 +891,8 @@ func TestReceiveMessageHeartbeat(t *testing.T) {
 }
 
 func TestPrimaryIncreaseNext(t *testing.T) {
-	prevEntries := []proto.Entry{{ViewNum: 1, OpNum: 1}, {ViewNum: 1, OpNum: 2}, {ViewNum: 1, OpNum: 3}}
+	initViewStampCase()
+	prevEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v1o2}, {ViewStamp:v1o3}}
 	cases := []struct {
 		offset  uint64
 		next    uint64
@@ -1122,18 +1165,19 @@ func TestCommitWithoutNewViewNumEntry(t *testing.T) {
 }
 
 func TestLateMessages(t *testing.T) {
+	initViewStampCase()
 	m := newMock(node, node, node)
 	m.trigger(changeMessage(replicaA, replicaA))
 	m.trigger(changeMessage(replicaB, replicaB))
 	m.trigger(changeMessage(replicaA, replicaA))
-	m.trigger(proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewNum: 2, Entries: []proto.Entry{{OpNum: 3, ViewNum: 2}}})
+	m.trigger(proto.Message{From: replicaB, To: replicaA, Type: proto.Prepare, ViewStamp:proto.ViewStamp{ViewNum: 2}, Entries: []proto.Entry{{ViewStamp:v2o3}}})
 	m.trigger(proto.Message{From: replicaA, To: replicaA, Type: proto.Request, Entries: []proto.Entry{{Data: []byte("testdata")}}})
 	opLog := &opLog{
 		store: &Store{
 			entries: []proto.Entry{
-				{}, {Data: nil, ViewNum: 1, OpNum: 1},
-				{Data: nil, ViewNum: 2, OpNum: 2}, {Data: nil, ViewNum: 3, OpNum: 3},
-				{Data: []byte("testdata"), ViewNum: 3, OpNum: 4},
+				{}, {Data: nil, ViewStamp:v1o1},
+				{Data: nil, ViewStamp:v2o2}, {Data: nil, ViewStamp:v3o3},
+				{Data: []byte("testdata"), ViewStamp:v3o4},
 			},
 		},
 		unsafe:    unsafe{offset: 5},

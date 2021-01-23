@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 	"errors"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 var ErrNotReached = errors.New("vr.store: access entry at op-number is not reached")
@@ -35,7 +35,7 @@ func (s *Store) SetAppliedState(as proto.AppliedState) error {
 	s.Lock()
 	defer s.Unlock()
 	s.appliedState = as
-	s.entries = []proto.Entry{{ViewNum: as.Applied.ViewNum, OpNum: as.Applied.OpNum}}
+	s.entries = []proto.Entry{{ViewStamp: as.Applied.ViewStamp}}
 	return nil
 }
 
@@ -64,10 +64,10 @@ func (s *Store) Append(entries []proto.Entry) error {
 	if last < start {
 		return nil
 	}
-	if start > entries[0].OpNum {
-		entries = entries[start-entries[0].OpNum:]
+	if start > entries[0].ViewStamp.OpNum {
+		entries = entries[start-entries[0].ViewStamp.OpNum:]
 	}
-	offset := entries[0].OpNum - s.startOpNum()
+	offset := entries[0].ViewStamp.OpNum - s.startOpNum()
 	if uint64(len(s.entries)) > offset {
 		s.entries = append([]proto.Entry{}, s.entries[:offset]...)
 		s.entries = append(s.entries, entries...)
@@ -75,7 +75,7 @@ func (s *Store) Append(entries []proto.Entry) error {
 		s.entries = append(s.entries, entries...)
 	} else {
 		log.Panicf("vr.store: not found oplog entry [last: %d, append at: %d]",
-			s.appliedState.Applied.OpNum+uint64(len(s.entries)), entries[0].OpNum)
+			s.appliedState.Applied.ViewStamp.OpNum+uint64(len(s.entries)), entries[0].ViewStamp.OpNum)
 	}
 	return nil
 }
@@ -83,7 +83,7 @@ func (s *Store) Append(entries []proto.Entry) error {
 func (s *Store) Subset(low, up uint64) ([]proto.Entry, error) {
 	s.Lock()
 	defer s.Unlock()
-	offset := s.entries[0].OpNum
+	offset := s.entries[0].ViewStamp.OpNum
 	if low <= offset {
 		return nil, ErrArchived
 	}
@@ -99,14 +99,14 @@ func (s *Store) Subset(low, up uint64) ([]proto.Entry, error) {
 func (s *Store) ViewNum(num uint64) (uint64, error) {
 	s.Lock()
 	defer s.Unlock()
-	offset := s.entries[0].OpNum
-	if num < offset {
+	vo := s.entries[0].ViewStamp.OpNum
+	if num < vo {
 		return 0, ErrArchived
 	}
-	if int(num-offset) >= len(s.entries) {
+	if int(num-vo) >= len(s.entries) {
 		return 0, ErrUnavailable
 	}
-	return s.entries[num-offset].ViewNum, nil
+	return s.entries[num-vo].ViewStamp.ViewNum, nil
 }
 
 func (s *Store) CommitNum() (uint64, error) {
@@ -122,7 +122,7 @@ func (s *Store) StartOpNum() (uint64, error) {
 }
 
 func (s *Store) startOpNum() uint64 {
-	return s.entries[0].OpNum
+	return s.entries[0].ViewStamp.OpNum
 }
 
 func (s *Store) LastOpNum() (uint64, error) {
@@ -132,20 +132,20 @@ func (s *Store) LastOpNum() (uint64, error) {
 }
 
 func (s *Store) lastOpNum() uint64 {
-	return s.entries[0].OpNum + uint64(len(s.entries))
+	return s.entries[0].ViewStamp.OpNum + uint64(len(s.entries))
 }
 
 func (s *Store) CreateAppliedState(num uint64, data []byte, rs *proto.ConfigurationState) (proto.AppliedState, error) {
 	s.Lock()
 	defer s.Unlock()
-	if num < s.appliedState.Applied.OpNum {
+	if num < s.appliedState.Applied.ViewStamp.OpNum {
 		return proto.AppliedState{}, ErrOverflow
 	}
 	if num > s.lastOpNum() {
 		log.Panicf("vr.store: applied-number state %d is overflow last op-number(%d)", num, s.lastOpNum())
 	}
-	s.appliedState.Applied.OpNum = num
-	s.appliedState.Applied.ViewNum = s.entries[num-s.startOpNum()].ViewNum
+	s.appliedState.Applied.ViewStamp.OpNum = num
+	s.appliedState.Applied.ViewStamp.ViewNum = s.entries[num-s.startOpNum()].ViewStamp.ViewNum
 	s.appliedState.Data = data
 	if rs != nil {
 		s.appliedState.Applied.ConfigurationState = *rs
@@ -165,8 +165,8 @@ func (s *Store) Archive(archiveNum uint64) error {
 	}
 	num := archiveNum - offset
 	entries := make([]proto.Entry, 1, 1+uint64(len(s.entries))-num)
-	entries[0].OpNum = s.entries[num].OpNum
-	entries[0].ViewNum = s.entries[num].ViewNum
+	entries[0].ViewStamp.OpNum = s.entries[num].ViewStamp.OpNum
+	entries[0].ViewStamp.ViewNum = s.entries[num].ViewStamp.ViewNum
 	entries = append(entries, s.entries[num+1:]...)
 	s.entries = entries
 	return nil

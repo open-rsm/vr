@@ -1,12 +1,12 @@
 package vr
 
 import (
+	"time"
 	"context"
 	"reflect"
 	"testing"
-	"time"
 
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 func TestReplicaCall(t *testing.T) {
@@ -103,7 +103,7 @@ func TestReplicaRequest(t *testing.T) {
 	for {
 		f := <-r.Ready()
 		store.Append(f.PersistentEntries)
-		if f.SoftState.Prim == vr.num {
+		if f.SoftState.Prim == vr.replicaNum {
 			vr.call = appendCall
 			r.Advance()
 			break
@@ -203,10 +203,10 @@ func TestReadyPreCheck(t *testing.T) {
 
 func TestReplicaRestart(t *testing.T) {
 	entries := []proto.Entry{
-		{ViewNum: 1, OpNum: 1},
-		{ViewNum: 1, OpNum: 2, Data: []byte("foo")},
+		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 1}},
+		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 2}, Data: []byte("foo")},
 	}
-	hs := proto.HardState{ViewNum: 1, CommitNum: 1}
+	hs := proto.HardState{ViewStamp: proto.ViewStamp{ViewNum: 1}, CommitNum: 1}
 	f := Ready{
 		HardState:         hs,
 		ApplicableEntries: entries[:hs.CommitNum],
@@ -287,7 +287,7 @@ func TestIsHardStateEqual(t *testing.T) {
 	}{
 		{nilHardState, true},
 		{proto.HardState{CommitNum: 1}, false},
-		{proto.HardState{ViewNum: 1}, false},
+		{proto.HardState{ViewStamp: proto.ViewStamp{ViewNum: 1}}, false},
 	}
 	for i, test := range cases {
 		if IsHardStateEqual(test.hs, nilHardState) != test.expEqual {

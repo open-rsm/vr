@@ -3,21 +3,22 @@ package vr
 import (
 	"reflect"
 	"testing"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 func TestAppend(t *testing.T) {
-	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}}
+	initViewStampCase()
+	prevEntries := []proto.Entry{{ViewStamp: v1o1}, {ViewStamp: v2o2}}
 	cases := []struct {
 		entries    []proto.Entry
 		expOpNum   uint64
 		expEntries []proto.Entry
 		expUnsafe  uint64
 	}{
-		{[]proto.Entry{},2,[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}},3 },
-		{[]proto.Entry{{OpNum: 3, ViewNum: 2}},3,[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 2}},3 },
-		{[]proto.Entry{{OpNum: 1, ViewNum: 2}},1,[]proto.Entry{{OpNum: 1, ViewNum: 2}},1 },
-		{[]proto.Entry{{OpNum: 2, ViewNum: 3}, {OpNum: 3, ViewNum: 3}},3,[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 3}, {OpNum: 3, ViewNum: 3}}, 2 },
+		{[]proto.Entry{},2,[]proto.Entry{{ViewStamp: v1o1}, {ViewStamp: v2o2}},3 },
+		{[]proto.Entry{{ViewStamp: v2o3}},3,[]proto.Entry{{ViewStamp: v1o1}, {ViewStamp: v2o2}, {ViewStamp: v2o3}},3 },
+		{[]proto.Entry{{ViewStamp: v2o1}},1,[]proto.Entry{{ViewStamp: v2o1}},1 },
+		{[]proto.Entry{{ViewStamp: v3o2}, {ViewStamp: v3o3}},3,[]proto.Entry{{ViewStamp: v1o1}, {ViewStamp: v3o2}, {ViewStamp: v3o3}}, 2 },
 	}
 	for i, test := range cases {
 		store := NewStore()
@@ -37,7 +38,8 @@ func TestAppend(t *testing.T) {
 }
 
 func TestTryAppend(t *testing.T) {
-	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
+	initViewStampCase()
+	prevEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}}
 	lastOpNum := uint64(3)
 	lastViewNum := uint64(3)
 	commitNum := uint64(1)
@@ -52,11 +54,11 @@ func TestTryAppend(t *testing.T) {
 		expPanic     bool
 	}{
 		{
-			lastViewNum - 1,lastOpNum,lastOpNum,[]proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}},
+			lastViewNum - 1,lastOpNum,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 1, ViewNum: 4}}},
 			0,false,commitNum,false,
 		},
 		{
-			lastViewNum,lastOpNum + 1,lastOpNum,[]proto.Entry{{OpNum: lastOpNum + 2, ViewNum: 4}},
+			lastViewNum,lastOpNum + 1,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 2, ViewNum: 4}}},
 			0,false,commitNum,false,
 		},
 		{
@@ -80,35 +82,35 @@ func TestTryAppend(t *testing.T) {
 			0,true,commitNum,false,
 		},
 		{
-			lastViewNum,lastOpNum,lastOpNum,[]proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}},
+			lastViewNum,lastOpNum,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 1, ViewNum: 4}}},
 			lastOpNum + 1,true,lastOpNum,false,
 		},
 		{
-			lastViewNum,lastOpNum,lastOpNum + 1,[]proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}},
+			lastViewNum,lastOpNum,lastOpNum + 1,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 1, ViewNum: 4}}},
 			lastOpNum + 1,true,lastOpNum + 1,false,
 		},
 		{
-			lastViewNum,lastOpNum,lastOpNum + 2,[]proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}},
+			lastViewNum,lastOpNum,lastOpNum + 2,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 1, ViewNum: 4}}},
 			lastOpNum + 1,true,lastOpNum + 1,false,
 		},
 		{
-			lastViewNum,lastOpNum, lastOpNum + 2, []proto.Entry{{OpNum: lastOpNum + 1, ViewNum: 4}, {OpNum: lastOpNum + 2, ViewNum: 4}},
+			lastViewNum,lastOpNum, lastOpNum + 2, []proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 1, ViewNum: 4}}, {ViewStamp:proto.ViewStamp{OpNum: lastOpNum + 2, ViewNum: 4}}},
 			lastOpNum + 2,true, lastOpNum + 2, false,
 		},
 		{
-			lastViewNum - 1,lastOpNum - 1,lastOpNum,[]proto.Entry{{OpNum: lastOpNum, ViewNum: 4}},
+			lastViewNum - 1,lastOpNum - 1,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum, ViewNum: 4}}},
 			lastOpNum,true,lastOpNum,false,
 		},
 		{
-			lastViewNum - 2, lastOpNum - 2, lastOpNum, []proto.Entry{{OpNum: lastOpNum - 1, ViewNum: 4}},
+			lastViewNum - 2, lastOpNum - 2, lastOpNum, []proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum - 1, ViewNum: 4}}},
 			lastOpNum - 1, true, lastOpNum - 1, false,
 		},
 		{
-			lastViewNum - 3,lastOpNum - 3,lastOpNum,[]proto.Entry{{OpNum: lastOpNum - 2, ViewNum: 4}},
+			lastViewNum - 3,lastOpNum - 3,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum - 2, ViewNum: 4}}},
 			lastOpNum - 2,true,lastOpNum - 2,true,
 		},
 		{
-			lastViewNum - 2,lastOpNum - 2,lastOpNum,[]proto.Entry{{OpNum: lastOpNum - 1, ViewNum: 4}, {OpNum: lastOpNum, ViewNum: 4}},
+			lastViewNum - 2,lastOpNum - 2,lastOpNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: lastOpNum - 1, ViewNum: 4}}, {ViewStamp:proto.ViewStamp{OpNum: lastOpNum, ViewNum: 4}}},
 			lastOpNum,true,lastOpNum,false,
 		},
 	}
@@ -147,12 +149,12 @@ func TestTryAppend(t *testing.T) {
 
 func TestNextEntries(t *testing.T) {
 	appliedState := proto.AppliedState{
-		Applied: proto.Applied{ViewNum: 1, OpNum: 3},
+		Applied: proto.Applied{ViewStamp: v1o3},
 	}
 	entries := []proto.Entry{
-		{ViewNum: 1, OpNum: 4},
-		{ViewNum: 1, OpNum: 5},
-		{ViewNum: 1, OpNum: 6},
+		{ViewStamp:v1o4},
+		{ViewStamp:v1o5},
+		{ViewStamp:v1o6},
 	}
 	cases := []struct {
 		appliedNum uint64
@@ -178,7 +180,7 @@ func TestNextEntries(t *testing.T) {
 }
 
 func TestUnsafeEntries(t *testing.T) {
-	prevEntries := []proto.Entry{{ViewNum: 1, OpNum: 1}, {ViewNum: 2, OpNum: 2}}
+	prevEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}}
 	cases := []struct {
 		unsafe     uint64
 		expEntries []proto.Entry
@@ -193,12 +195,12 @@ func TestUnsafeEntries(t *testing.T) {
 		log.append(prevEntries[test.unsafe-1:]...)
 		entries := log.unsafeEntries()
 		if l := len(entries); l > 0 {
-			log.safeTo(entries[l-1].OpNum, entries[l-i].ViewNum)
+			log.safeTo(entries[l-1].ViewStamp.OpNum, entries[l-i].ViewStamp.ViewNum)
 		}
 		if !reflect.DeepEqual(entries, test.expEntries) {
 			t.Errorf("#%d: unsafe entries = %+v, expected %+v", i, entries, test.expEntries)
 		}
-		w := prevEntries[len(prevEntries)-1].OpNum + 1
+		w := prevEntries[len(prevEntries)-1].ViewStamp.OpNum + 1
 		if g := log.unsafe.offset; g != w {
 			t.Errorf("#%d: unsafe = %d, expected %d", i, g, w)
 		}
@@ -206,7 +208,8 @@ func TestUnsafeEntries(t *testing.T) {
 }
 
 func TestCommitTo(t *testing.T) {
-	prevEntries := []proto.Entry{{ViewNum: 1, OpNum: 1}, {ViewNum: 2, OpNum: 2}, {ViewNum: 3, OpNum: 3}}
+	initViewStampCase()
+	prevEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}}
 	commitNum := uint64(2)
 	cases := []struct {
 		commitNum    uint64
@@ -238,6 +241,7 @@ func TestCommitTo(t *testing.T) {
 }
 
 func TestSafeTo(t *testing.T) {
+	initViewStampCase()
 	cases := []struct {
 		safeOpNum   uint64
 		safeViewNum uint64
@@ -250,7 +254,7 @@ func TestSafeTo(t *testing.T) {
 	}
 	for i, test := range cases {
 		log := newOpLog(NewStore())
-		log.append([]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}}...)
+		log.append([]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}}...)
 		log.safeTo(test.safeOpNum, test.safeViewNum)
 		if log.unsafe.offset != test.expUnsafe {
 			t.Errorf("#%d: unsafe = %d, expected %d", i, log.unsafe.offset, test.expUnsafe)
@@ -260,7 +264,7 @@ func TestSafeTo(t *testing.T) {
 
 func TestSafeToWithAppliedState(t *testing.T) {
 	appliedStateOpNum, appliedStateViewNum := uint64(5), uint64(2)
-	appliedState := proto.AppliedState{Applied: proto.Applied{OpNum: appliedStateOpNum, ViewNum: appliedStateViewNum}}
+	appliedState := proto.AppliedState{Applied: proto.Applied{ViewStamp: proto.ViewStamp{OpNum: appliedStateOpNum, ViewNum: appliedStateViewNum}}}
 	cases := []struct {
 		safeOpNum   uint64
 		safeViewNum uint64
@@ -273,12 +277,12 @@ func TestSafeToWithAppliedState(t *testing.T) {
 		{appliedStateOpNum + 1,appliedStateViewNum + 1,nil,appliedStateOpNum + 1},
 		{appliedStateOpNum,appliedStateViewNum + 1,nil,appliedStateOpNum + 1},
 		{appliedStateOpNum - 1,appliedStateViewNum + 1,nil,appliedStateOpNum + 1},
-		{appliedStateOpNum + 1,appliedStateViewNum,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 2},
-		{appliedStateOpNum,appliedStateViewNum,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 1},
-		{appliedStateOpNum - 1,appliedStateViewNum,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 1},
-		{appliedStateOpNum + 1,appliedStateViewNum + 1,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 1},
-		{appliedStateOpNum,appliedStateViewNum + 1,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 1},
-		{appliedStateOpNum - 1,appliedStateViewNum + 1,[]proto.Entry{{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}},appliedStateOpNum + 1},
+		{appliedStateOpNum + 1,appliedStateViewNum,[]proto.Entry{{ViewStamp: proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 2},
+		{appliedStateOpNum,appliedStateViewNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 1},
+		{appliedStateOpNum - 1,appliedStateViewNum,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 1},
+		{appliedStateOpNum + 1,appliedStateViewNum + 1,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 1},
+		{appliedStateOpNum,appliedStateViewNum + 1,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 1},
+		{appliedStateOpNum - 1,appliedStateViewNum + 1,[]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: appliedStateOpNum + 1, ViewNum: appliedStateViewNum}}},appliedStateOpNum + 1},
 	}
 	for i, test := range cases {
 		store := NewStore()
@@ -314,7 +318,7 @@ func TestArchive(t *testing.T) {
 			}()
 			store := NewStore()
 			for num := uint64(1); num <= test.lastOpNum; num++ {
-				store.Append([]proto.Entry{{OpNum: num}})
+				store.Append([]proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: num}}})
 			}
 			opLog := newOpLog(store)
 			opLog.tryCommit(test.lastOpNum, 0)
@@ -342,11 +346,11 @@ func TestArchiveDisorder(t *testing.T) {
 	lastViewNum := lastOpNum
 	store := NewStore()
 	for i = 1; i <= unsafeOpNum; i++ {
-		store.Append([]proto.Entry{{ViewNum: uint64(i), OpNum: uint64(i)}})
+		store.Append([]proto.Entry{{ViewStamp:proto.ViewStamp{ViewNum: uint64(i), OpNum: uint64(i)}}})
 	}
 	opLog := newOpLog(store)
 	for i = unsafeOpNum; i < lastOpNum; i++ {
-		opLog.append(proto.Entry{ViewNum: uint64(i + 1), OpNum: uint64(i + 1)})
+		opLog.append(proto.Entry{ViewStamp:proto.ViewStamp{ViewNum: uint64(i + 1), OpNum: uint64(i + 1)}})
 	}
 	ok := opLog.tryCommit(lastOpNum, lastViewNum)
 	if !ok {
@@ -372,11 +376,11 @@ func TestArchiveDisorder(t *testing.T) {
 	if l := len(unsafeEntries); l != 250 {
 		t.Errorf("unsafe entries length = %d, expected = %d", l, 250)
 	}
-	if unsafeEntries[0].OpNum != 751 {
-		t.Errorf("op-number = %d, expected = %d", unsafeEntries[0].OpNum, 751)
+	if unsafeEntries[0].ViewStamp.OpNum != 751 {
+		t.Errorf("op-number = %d, expected = %d", unsafeEntries[0].ViewStamp.OpNum, 751)
 	}
 	prev := opLog.lastOpNum()
-	opLog.append(proto.Entry{OpNum: opLog.lastOpNum() + 1, ViewNum: opLog.lastOpNum() + 1})
+	opLog.append(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: opLog.lastOpNum() + 1, ViewNum: opLog.lastOpNum() + 1}})
 	if opLog.lastOpNum() != prev+1 {
 		t.Errorf("last op-number = %d, expected = %d", opLog.lastOpNum(), prev+1)
 	}
@@ -388,7 +392,7 @@ func TestArchiveDisorder(t *testing.T) {
 
 func TestLogStore(t *testing.T) {
 	opNum, viewNum := uint64(1000), uint64(1000)
-	applied := proto.Applied{OpNum: opNum, ViewNum: viewNum}
+	applied := proto.Applied{ViewStamp:proto.ViewStamp{OpNum: opNum, ViewNum: viewNum}}
 	store := NewStore()
 	store.SetAppliedState(proto.AppliedState{Applied: applied})
 	log := newOpLog(store)
@@ -410,10 +414,10 @@ func TestIsOutOfBounds(t *testing.T) {
 	offset := uint64(100)
 	num := uint64(100)
 	store := NewStore()
-	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{OpNum: offset}})
+	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{ViewStamp:proto.ViewStamp{OpNum: offset}}})
 	opLog := newOpLog(store)
 	for i := uint64(1); i <= num; i++ {
-		opLog.append(proto.Entry{OpNum: i + offset})
+		opLog.append(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: i + offset}})
 	}
 	start := offset + 1
 	cases := []struct {
@@ -451,10 +455,10 @@ func TestViewNum(t *testing.T) {
 	offset := uint64(100)
 	num := uint64(100)
 	store := NewStore()
-	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{OpNum: offset, ViewNum: 1}})
+	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{ViewStamp:proto.ViewStamp{OpNum: offset, ViewNum: 1}}})
 	l := newOpLog(store)
 	for i = 1; i < num; i++ {
-		l.append(proto.Entry{OpNum: offset + i, ViewNum: i})
+		l.append(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: offset + i, ViewNum: i}})
 	}
 	cases := []struct {
 		opNum uint64
@@ -478,9 +482,9 @@ func TestViewNumWithUnsafeAppliedState(t *testing.T) {
 	storeAppliedStateOpNum := uint64(100)
 	unsafeAppliedStateOpNum := storeAppliedStateOpNum + 5
 	store := NewStore()
-	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{OpNum: storeAppliedStateOpNum, ViewNum: 1}})
+	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{ViewStamp:proto.ViewStamp{OpNum: storeAppliedStateOpNum, ViewNum: 1}}})
 	opLog := newOpLog(store)
-	opLog.recover(proto.AppliedState{Applied:proto.Applied{OpNum: unsafeAppliedStateOpNum, ViewNum: 1}})
+	opLog.recover(proto.AppliedState{Applied:proto.Applied{ViewStamp:proto.ViewStamp{OpNum: unsafeAppliedStateOpNum, ViewNum: 1}}})
 	cases := []struct {
 		opNum uint64
 		exp   uint64
@@ -503,10 +507,10 @@ func TestSeek(t *testing.T) {
 	offset := uint64(100)
 	num := uint64(100)
 	store := NewStore()
-	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{OpNum: offset}})
+	store.SetAppliedState(proto.AppliedState{Applied:proto.Applied{ViewStamp:proto.ViewStamp{OpNum: offset}}})
 	opLog := newOpLog(store)
 	for i = 1; i < num; i++ {
-		opLog.append(proto.Entry{OpNum: offset + i, ViewNum: offset + i})
+		opLog.append(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: offset + i, ViewNum: offset + i}})
 	}
 	cases := []struct {
 		from     uint64
@@ -516,8 +520,8 @@ func TestSeek(t *testing.T) {
 	}{
 		{offset - 1, offset + 1, nil, true},
 		{offset, offset + 1, nil, true},
-		{offset + num/2, offset + num/2 + 1, []proto.Entry{{OpNum: offset + num/2, ViewNum: offset + num/2}}, false},
-		{offset + num - 1, offset + num, []proto.Entry{{OpNum: offset + num - 1, ViewNum: offset + num - 1}}, false},
+		{offset + num/2, offset + num/2 + 1, []proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: offset + num/2, ViewNum: offset + num/2}}}, false},
+		{offset + num - 1, offset + num, []proto.Entry{{ViewStamp:proto.ViewStamp{OpNum: offset + num - 1, ViewNum: offset + num - 1}}}, false},
 		{offset + num, offset + num + 1, nil, true},
 	}
 	for j, test := range cases {
@@ -538,23 +542,24 @@ func TestSeek(t *testing.T) {
 }
 
 func TestScanCollision(t *testing.T) {
-	presetEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
+	initViewStampCase()
+	presetEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}}
 	cases := []struct {
 		entries      []proto.Entry
 		expCollision uint64
 	}{
 		{[]proto.Entry{},0},
 		{[]proto.Entry{},0},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}},0},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}, 0},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 3}}, 0},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 3}, {OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}},4},
-		{[]proto.Entry{{OpNum: 4, ViewNum: 4}, {OpNum: 5, ViewNum: 4}}, 4},
-		{[]proto.Entry{{OpNum: 1, ViewNum: 4}, {OpNum: 2, ViewNum: 4}}, 1},
-		{[]proto.Entry{{OpNum: 2, ViewNum: 1}, {OpNum: 3, ViewNum: 4}, {OpNum: 4, ViewNum: 4}}, 2},
-		{[]proto.Entry{{OpNum: 3, ViewNum: 1}, {OpNum: 4, ViewNum: 2}, {OpNum: 5, ViewNum: 4}, {OpNum: 6, ViewNum: 4}},3},
+		{[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}},0},
+		{[]proto.Entry{{ViewStamp:v2o2}, {ViewStamp:v3o3}}, 0},
+		{[]proto.Entry{{ViewStamp:v3o3}}, 0},
+		{[]proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}, {ViewStamp:v4o4}, {ViewStamp:v4o5}},4},
+		{[]proto.Entry{{ViewStamp:v2o2}, {ViewStamp:v3o3}, {ViewStamp:v4o4}, {ViewStamp:v4o5}}, 4},
+		{[]proto.Entry{{ViewStamp:v3o3}, {ViewStamp:v4o4}, {ViewStamp:v4o5}},4},
+		{[]proto.Entry{{ViewStamp:v4o4}, {ViewStamp:v4o5}}, 4},
+		{[]proto.Entry{{ViewStamp:v4o1}, {ViewStamp:v4o2}}, 1},
+		{[]proto.Entry{{ViewStamp:v1o2}, {ViewStamp:v4o3}, {ViewStamp:v4o4}}, 2},
+		{[]proto.Entry{{ViewStamp:v1o3}, {ViewStamp:v2o4}, {ViewStamp:v4o5}, {ViewStamp:v4o6}},3},
 	}
 	for i, test := range cases {
 		log := newOpLog(NewStore())
@@ -567,7 +572,8 @@ func TestScanCollision(t *testing.T) {
 }
 
 func TestIsUpToDate(t *testing.T) {
-	prevEntries := []proto.Entry{{OpNum: 1, ViewNum: 1}, {OpNum: 2, ViewNum: 2}, {OpNum: 3, ViewNum: 3}}
+	initViewStampCase()
+	prevEntries := []proto.Entry{{ViewStamp:v1o1}, {ViewStamp:v2o2}, {ViewStamp:v3o3}}
 	opLog := newOpLog(NewStore())
 	opLog.append(prevEntries...)
 	cases := []struct {

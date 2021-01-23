@@ -2,7 +2,7 @@ package vr
 
 import (
 	"log"
-	"github.com/open-rsm/spec/proto"
+	"github.com/open-rsm/vr/proto"
 )
 
 // used to manage the intermediate state that has not
@@ -26,7 +26,7 @@ func (u *unsafe) subset(low uint64, up uint64) []proto.Entry {
 }
 
 func (u *unsafe) truncateAndAppend(entries []proto.Entry) {
-	ahead := entries[0].OpNum - 1
+	ahead := entries[0].ViewStamp.OpNum - 1
 	if ahead == u.offset+uint64(len(u.entries))-1 {
 		u.entries = append(u.entries, entries...)
 	} else if ahead < u.offset {
@@ -42,7 +42,7 @@ func (u *unsafe) truncateAndAppend(entries []proto.Entry) {
 
 func (u *unsafe) tryGetStartOpNum() (uint64, bool) {
 	if as := u.appliedState; as != nil {
-		return as.Applied.OpNum + 1, true
+		return as.Applied.ViewStamp.OpNum + 1, true
 	}
 	return 0, false
 }
@@ -52,7 +52,7 @@ func (u *unsafe) tryGetLastOpNum() (uint64, bool) {
 		return u.offset + uint64(el) - 1, true
 	}
 	if as := u.appliedState; as != nil {
-		return as.Applied.OpNum, true
+		return as.Applied.ViewStamp.OpNum, true
 	}
 	return 0, false
 }
@@ -62,8 +62,8 @@ func (u *unsafe) tryGetViewNum(num uint64) (uint64, bool) {
 		if u.appliedState == nil {
 			return 0, false
 		}
-		if applied := u.appliedState.Applied; applied.OpNum == num {
-			return applied.ViewNum, true
+		if applied := u.appliedState.Applied; applied.ViewStamp.OpNum == num {
+			return applied.ViewStamp.ViewNum, true
 		}
 		return 0, false
 	}
@@ -74,7 +74,7 @@ func (u *unsafe) tryGetViewNum(num uint64) (uint64, bool) {
 	if num > last {
 		return 0, false
 	}
-	return u.entries[num-u.offset].ViewNum, true
+	return u.entries[num-u.offset].ViewStamp.ViewNum, true
 }
 
 func (u *unsafe) safeTo(on, vn uint64) {
@@ -89,13 +89,13 @@ func (u *unsafe) safeTo(on, vn uint64) {
 }
 
 func (u *unsafe) safeAppliedStateTo(num uint64) {
-	if u.appliedState != nil && u.appliedState.Applied.OpNum == num {
+	if u.appliedState != nil && u.appliedState.Applied.ViewStamp.OpNum == num {
 		u.appliedState = nil
 	}
 }
 
 func (u *unsafe) recover(state proto.AppliedState) {
 	u.entries = nil
-	u.offset = state.Applied.OpNum + 1
+	u.offset = state.Applied.ViewStamp.OpNum + 1
 	u.appliedState = &state
 }
