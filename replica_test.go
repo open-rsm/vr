@@ -185,14 +185,14 @@ func TestReplicaStop(t *testing.T) {
 
 func TestReadyPreCheck(t *testing.T) {
 	cases := []struct {
-		f     Ready
+		f     Tuples
 		check bool
 	}{
-		{Ready{}, false},
-		{Ready{SoftState: &SoftState{Prim: 1}}, true},
-		{Ready{PersistentEntries: make([]proto.Entry, 1, 1)}, true},
-		{Ready{ApplicableEntries: make([]proto.Entry, 1, 1)}, true},
-		{Ready{Messages: make([]proto.Message, 1, 1)}, true},
+		{Tuples{}, false},
+		{Tuples{SoftState: &SoftState{Prim: 1}}, true},
+		{Tuples{PersistentEntries: make([]proto.Entry, 1, 1)}, true},
+		{Tuples{ApplicableEntries: make([]proto.Entry, 1, 1)}, true},
+		{Tuples{Messages: make([]proto.Message, 1, 1)}, true},
 	}
 	for i, test := range cases {
 		if rv := test.f.PreCheck(); rv != test.check {
@@ -207,7 +207,7 @@ func TestReplicaRestart(t *testing.T) {
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 2}, Data: []byte("foo")},
 	}
 	hs := proto.HardState{ViewStamp: proto.ViewStamp{ViewNum: 1}, CommitNum: 1}
-	f := Ready{
+	f := Tuples{
 		HardState:         hs,
 		ApplicableEntries: entries[:hs.CommitNum],
 	}
@@ -229,7 +229,7 @@ func TestReplicaRestart(t *testing.T) {
 	n.Advance()
 	select {
 	case f := <-n.Ready():
-		t.Errorf("unexpecteded Ready: %+v", f)
+		t.Errorf("unexpecteded Tuples: %+v", f)
 	case <-time.After(time.Millisecond):
 	}
 }
@@ -249,7 +249,7 @@ func TestReplicaAdvance(t *testing.T) {
 	r.Change(ctx)
 	<-r.Ready()
 	r.Step(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("foo")}}})
-	var f Ready
+	var f Tuples
 	select {
 	case f = <-r.Ready():
 		t.Fatalf("unexpecteded ready before advance: %+v", f)

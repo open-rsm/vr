@@ -107,9 +107,8 @@ message ConfigurationState {
 }
 
 enum ConfigurationType {
-	PostReplica   = 0;
-	DeleteReplica = 1;
-	UpdateReplica = 2;
+	AddReplica = 0;
+	DelReplica = 1;
 }
 
 message Configuration {

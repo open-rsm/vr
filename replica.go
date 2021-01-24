@@ -2,7 +2,6 @@ package vr
 
 import (
 	"log"
-	"fmt"
 	"errors"
 	"context"
 	"github.com/open-rsm/vr/proto"
@@ -22,8 +21,8 @@ type Replicator interface {
 	Advance()
 	Change(ctx context.Context) error
 	Clock()
-	Ready(...Option) <-chan Ready
-	Reconfiguration(context.Context, proto.Configuration) *proto.ConfigurationState
+	Ready(...Option) <-chan Tuples
+	Reconfiguration(proto.Configuration) *proto.ConfigurationState
 	Step(context.Context, proto.Message) error
 	Status() Status
 	Stop()
@@ -52,7 +51,7 @@ func RestartReplica(c *Config) Replicator {
 type replica struct {
 	requestC            chan proto.Message
 	receiveC            chan proto.Message
-	readyC              chan Ready
+	readyC              chan Tuples
 	advanceC            chan struct{}
 	clockC              chan struct{}
 	configurationC      chan proto.Configuration
@@ -60,14 +59,13 @@ type replica struct {
 	doneC               chan struct{}
 	stopC               chan struct{}
 	statusC             chan chan Status
-	vr                  *VR
 }
 
 func newReplica() *replica {
 	return &replica{
 		requestC:            make(chan proto.Message),
 		receiveC:            make(chan proto.Message),
-		readyC:              make(chan Ready),
+		readyC:              make(chan Tuples),
 		advanceC:            make(chan struct{}),
 		configurationC:      make(chan proto.Configuration),
 		configurationStateC: make(chan proto.ConfigurationState),
@@ -80,15 +78,14 @@ func newReplica() *replica {
 
 func (r *replica) cycle(vr *VR) {
 	var requestC chan proto.Message
-	var readyC chan Ready
+	var readyC chan Tuples
 	var advanceC chan struct{}
 	var prevUnsafeOpNum uint64
 	var prevUnsafeViewNum uint64
 	var needToSafe bool
 	var prevAppliedStateOpNum uint64
-	var rd Ready
+	var tp Tuples
 
-	r.vr = vr
 	prim := None
 	prevSoftState := vr.softState()
 	prevHardState := nilHardState
@@ -111,8 +108,8 @@ func (r *replica) cycle(vr *VR) {
 		if advanceC != nil {
 			readyC = nil
 		} else {
-			rd = newReady(vr, prevSoftState, prevHardState)
-			if rd.PreCheck() {
+			tp = newTuples(vr, prevSoftState, prevHardState)
+			if tp.PreCheck() {
 				readyC = r.readyC
 			} else {
 				readyC = nil
@@ -126,27 +123,6 @@ func (r *replica) cycle(vr *VR) {
 			if vr.windows.Exist(m.From) || !IsReplyMessage(m) {
 				vr.Call(m)
 			}
-		case rc := <-r.configurationC:
-			_ = rc
-		case <-r.clockC:
-			vr.clock()
-		case readyC <- rd:
-			if n := len(rd.PersistentEntries); n > 0 {
-				prevUnsafeOpNum = rd.PersistentEntries[n-1].ViewStamp.OpNum
-				prevUnsafeViewNum = rd.PersistentEntries[n-1].ViewStamp.ViewNum
-				needToSafe = true
-			}
-			if rd.SoftState != nil {
-				prevSoftState = rd.SoftState
-			}
-			if !IsInvalidHardState(rd.HardState) {
-				prevHardState = rd.HardState
-			}
-			if !IsInvalidAppliedState(rd.AppliedState) {
-				prevAppliedStateOpNum = rd.AppliedState.Applied.ViewStamp.OpNum
-			}
-			vr.messages = nil
-			advanceC = r.advanceC
 		case <-advanceC:
 			if prevHardState.CommitNum != 0 {
 				vr.opLog.appliedTo(prevHardState.CommitNum)
@@ -158,8 +134,29 @@ func (r *replica) cycle(vr *VR) {
 			// TODO: need to check?
 			vr.opLog.safeAppliedStateTo(prevAppliedStateOpNum)
 			advanceC = nil
+		case readyC <- tp:
+			if n := len(tp.PersistentEntries); n > 0 {
+				prevUnsafeOpNum = tp.PersistentEntries[n-1].ViewStamp.OpNum
+				prevUnsafeViewNum = tp.PersistentEntries[n-1].ViewStamp.ViewNum
+				needToSafe = true
+			}
+			if tp.SoftState != nil {
+				prevSoftState = tp.SoftState
+			}
+			if !IsInvalidHardState(tp.HardState) {
+				prevHardState = tp.HardState
+			}
+			if !IsInvalidAppliedState(tp.AppliedState) {
+				prevAppliedStateOpNum = tp.AppliedState.Applied.ViewStamp.OpNum
+			}
+			vr.messages = nil
+			advanceC = r.advanceC
 		case c := <-r.statusC:
 			c <- getStatus(vr)
+		case rc := <-r.configurationC:
+			r.handleConfiguration(rc)
+		case <-r.clockC:
+			vr.clock()
 		case <-r.stopC:
 			close(r.doneC)
 			return
@@ -183,11 +180,6 @@ func (r *replica) Step(ctx context.Context, m proto.Message) error {
 		return nil
 	}
 	// TODO: notify the outside that the system is doing reconfiguration
-	if r.vr != nil {
-		if r.vr.status == Transitioning {
-			return fmt.Errorf("vr.replica: doing reconfiguration")
-		}
-	}
 	return r.call(ctx, m)
 }
 
@@ -206,7 +198,7 @@ func (r *replica) call(ctx context.Context, m proto.Message) error {
 	}
 }
 
-func (r *replica) Ready(opt ...Option) <-chan Ready {
+func (r *replica) Ready(opt ...Option) <-chan Tuples {
 	if opt != nil {
 		for _, this := range opt {
 			if f := this.Filter; f != nil {
@@ -217,8 +209,21 @@ func (r *replica) Ready(opt ...Option) <-chan Ready {
 	return r.readyC
 }
 
-func (r *replica) Reconfiguration(context.Context, proto.Configuration) *proto.ConfigurationState {
-	return nil
+func (r *replica) Reconfiguration(c proto.Configuration) *proto.ConfigurationState {
+	var state proto.ConfigurationState
+	select {
+	case r.configurationC <- c:
+	case <-r.doneC:
+	}
+	select {
+	case state = <-r.configurationStateC:
+	case <-r.doneC:
+	}
+	return &state
+}
+
+func (r *replica) handleConfiguration(c proto.Configuration) {
+
 }
 
 func (r *replica) Status() Status {
@@ -252,7 +257,7 @@ func (r *SoftState) equal(ss *SoftState) bool {
 	return r.Prim == ss.Prim && r.Role == ss.Role
 }
 
-type Ready struct {
+type Tuples struct {
 	proto.AppliedState
 	proto.HardState
 	*SoftState
@@ -262,25 +267,25 @@ type Ready struct {
 	Messages          []proto.Message
 }
 
-func newReady(vr *VR, prevSS *SoftState, prevHS proto.HardState) Ready {
-	f := Ready{
+func newTuples(vr *VR, prevSS *SoftState, prevHS proto.HardState) Tuples {
+	t := Tuples{
 		PersistentEntries: vr.opLog.unsafeEntries(),
 		ApplicableEntries: vr.opLog.safeEntries(),
 		Messages:          vr.messages,
 	}
 	if ss := vr.softState(); !ss.equal(prevSS) {
-		f.SoftState = ss
+		t.SoftState = ss
 	}
 	if !hardStateCompare(vr.HardState, prevHS) {
-		f.HardState = vr.HardState
+		t.HardState = vr.HardState
 	}
 	if vr.opLog.unsafe.appliedState != nil {
-		f.AppliedState = *vr.opLog.unsafe.appliedState
+		t.AppliedState = *vr.opLog.unsafe.appliedState
 	}
-	return f
+	return t
 }
 
-func (r Ready) PreCheck() bool {
-	return r.SoftState != nil || !IsInvalidHardState(r.HardState) || len(r.PersistentEntries) > 0 ||
-		len(r.ApplicableEntries) > 0 || len(r.Messages) > 0
+func (t Tuples) PreCheck() bool {
+	return t.SoftState != nil || !IsInvalidHardState(t.HardState) || len(t.PersistentEntries) > 0 ||
+		len(t.ApplicableEntries) > 0 || len(t.Messages) > 0
 }
