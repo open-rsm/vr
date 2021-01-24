@@ -257,7 +257,7 @@ func TestCommit(t *testing.T) {
 			AppliedNum:        0,
 		})
 		for j := 0; j < len(test.offsets); j++ {
-			vr.setWindow(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
+			vr.windows.Set(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
 		}
 		vr.tryCommit()
 		if cn := vr.opLog.commitNum; cn != test.exp {
@@ -662,7 +662,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows[replicaB]
+		window := vr.windows.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -715,7 +715,7 @@ func TestPrimaryRecovery(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows[replicaB]
+		window := vr.windows.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -768,7 +768,7 @@ func TestPrimaryGetState(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows[replicaB]
+		window := vr.windows.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -802,7 +802,6 @@ func TestBroadcastHeartbeat(t *testing.T) {
 	store.SetAppliedState(as)
 	vr := newVR(&Config{
 		Num:               replicaA,
-		//Peers:             nil,
 		Peers:             []uint64{replicaA, replicaB, replicaC},
 		TransitionTimeout: 10,
 		HeartbeatTimeout:  1,
@@ -815,16 +814,16 @@ func TestBroadcastHeartbeat(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		vr.appendEntry(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: uint64(i) + 1}})
 	}
-	vr.windows[replicaB].Ack, vr.windows[replicaB].Next = 5, 6
-	vr.windows[replicaC].Ack, vr.windows[replicaC].Next = vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1
+	vr.windows.Set(replicaB, 5, 6)
+	vr.windows.Set(replicaC, vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1)
 	vr.Call(proto.Message{Type: proto.Heartbeat})
 	msgs := vr.handleMessages()
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %v, expected 2", len(msgs))
 	}
 	expectedCommitMap := map[uint64]uint64{
-		2: min(vr.opLog.commitNum, vr.windows[2].Ack),
-		3: min(vr.opLog.commitNum, vr.windows[3].Ack),
+		2: min(vr.opLog.commitNum, vr.windows.IndexOf(2).Ack),
+		3: min(vr.opLog.commitNum, vr.windows.IndexOf(3).Ack),
 	}
 	for i, m := range msgs {
 		if m.Type != proto.Commit {
@@ -913,9 +912,9 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 		vr.opLog.append(prevEntries...)
 		vr.becomeReplica()
 		vr.becomePrimary()
-		vr.windows[replicaB].Ack, vr.windows[replicaB].Next = test.offset, test.next
+		vr.windows.Set(replicaB, test.offset, test.next)
 		vr.Call(requestMessage(replicaA, replicaA))
-		window := vr.windows[replicaB]
+		window := vr.windows.IndexOf(replicaB)
 		if window.Next != test.expNext {
 			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
 		}
@@ -972,8 +971,8 @@ func TestVRReplicas(t *testing.T) {
 			Store:             NewStore(),
 			AppliedNum:        0,
 		})
-		if !reflect.DeepEqual(r.replicas(), test.expPeers) {
-			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.replicas(), test.expPeers)
+		if !reflect.DeepEqual(r.windows.Replicas(), test.expPeers) {
+			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.windows.Replicas(), test.expPeers)
 		}
 	}
 }
@@ -991,7 +990,7 @@ func TestWindowUpdate(t *testing.T) {
 		{prevOffset + 2,prevOffset + 2,prevNext + 1},
 	}
 	for i, test := range cases {
-		s := &Window{
+		s := &window{
 			Ack:  prevOffset,
 			Next: prevNext,
 		}
@@ -1027,7 +1026,7 @@ func TestWindowTryDec(t *testing.T) {
 		{0,10,9,0,true,1 },
 	}
 	for i, test := range cases {
-		s := &Window{
+		s := &window{
 			Ack:  test.offset,
 			Next: test.next,
 		}
@@ -1055,7 +1054,7 @@ func TestWindowNeedDelay(t *testing.T) {
 		{0,0,false},
 	}
 	for i, test := range cases {
-		s := &Window{
+		s := &window{
 			Ack:   test.offset,
 			Delay: test.delay,
 		}
@@ -1066,7 +1065,7 @@ func TestWindowNeedDelay(t *testing.T) {
 }
 
 func TestWindowDelayReset(t *testing.T) {
-	s := &Window{
+	s := &window{
 		Delay: 1,
 	}
 	s.tryDecTo(1, 1)
@@ -1091,10 +1090,10 @@ func TestWindowDec(t *testing.T) {
 	})
 	r.becomeReplica()
 	r.becomePrimary()
-	r.windows[replicaB].Delay = r.heartbeatTimeout * 2
+	r.windows.IndexOf(replicaB).delaySet(r.heartbeatTimeout * 2)
 	r.Call(proto.Message{From: 1, To: 1, Type: proto.Heartbeat})
-	if r.windows[replicaB].Delay != r.heartbeatTimeout*(2-1) {
-		t.Errorf("delay = %d, expected %d", r.windows[2].Delay, r.heartbeatTimeout*(2-1))
+	if r.windows.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
+		t.Errorf("delay = %d, expected %d", r.windows.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
 	}
 }
 

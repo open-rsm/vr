@@ -7,8 +7,8 @@ import (
 )
 
 func testRoundRobin() error {
-	buildWindows := func(nums []uint64) map[uint64]*Window {
-		var windows = map[uint64]*Window{}
+	buildWindows := func(nums []uint64) map[uint64]*window {
+		var windows = map[uint64]*window{}
 		for _, num := range nums {
 			windows[num] = newWindow()
 		}
@@ -17,7 +17,7 @@ func testRoundRobin() error {
 	cases := []struct {
 		vs      proto.ViewStamp
 		peers   []uint64
-		windows func([]uint64) map[uint64]*Window
+		windows func([]uint64) map[uint64]*window
 		expNum  uint64
 	}{
 		{proto.ViewStamp{ViewNum:replicaD},[]uint64{replicaA}, buildWindows,replicaA},

@@ -72,10 +72,11 @@ func (m *mock) build(index int, node Node, n int) error {
 		m.nodes[num] = v
 	case *VR:
 		v.replicaNum = num
-		v.windows = make(map[uint64]*Window)
+		var peers []uint64
 		for i := 0; i < n; i++ {
-			v.windows[m.numbers[i]] = &Window{}
+			peers = append(peers, m.numbers[i])
 		}
+		v.windows = CreateWindows(peers)
 		v.reset(0)
 		m.nodes[num] = v
 	default:

@@ -19,16 +19,16 @@ enum EntryType {
 // for two viewstamps with the same view-number.
 message ViewStamp {
 	// The current view-number, initially 0.
-	uint64 viewNum = 1;
+	uint64 view_num = 1;
 	// The op-number assigned to the most recently received
 	// request, initially 0.
-	uint64 opNum   = 2;
+	uint64 op_num   = 2;
 }
 
 message Entry {
-	EntryType type      = 1;
-   	ViewStamp ViewStamp = 2 [(gogoproto.nullable) = false];
-	bytes     data      = 3;
+	EntryType type       = 1;
+   	ViewStamp view_stamp = 2 [(gogoproto.nullable) = false];
+	bytes     data       = 3;
 }
 
 enum MessageType {
@@ -68,24 +68,24 @@ enum MessageType {
 }
 
 message Message {
-	MessageType    type         = 1;
-	uint64         from         = 2;
-	uint64         to           = 3;
-	uint64         logNum       = 4;
-   	ViewStamp      ViewStamp    = 5 [(gogoproto.nullable) = false];
-	uint64         commitNum    = 6;
-	repeated Entry entries      = 7 [(gogoproto.nullable) = false];
-	uint64         x            = 8;
-	bytes          context      = 9;
-	uint64         note         = 10;
-	AppliedState   appliedState = 11 [(gogoproto.nullable) = false];
+	MessageType    type          = 1;
+	uint64         from          = 2;
+	uint64         to            = 3;
+	uint64         log_num       = 4;
+   	ViewStamp      view_stamp    = 5 [(gogoproto.nullable) = false];
+	uint64         commit_num    = 6;
+	repeated Entry entries       = 7 [(gogoproto.nullable) = false];
+	uint64         x             = 8;
+	bytes          context       = 9;
+	uint64         note          = 10;
+	AppliedState   applied_state = 11 [(gogoproto.nullable) = false];
 }
 
 message HardState {
-   	ViewStamp ViewStamp = 1 [(gogoproto.nullable) = false];
+   	ViewStamp view_stamp = 1 [(gogoproto.nullable) = false];
 	// The commit-number is the op-number of the most recently
 	// commitNum operation.
-	uint64 commitNum    = 2;
+	uint64 commit_num    = 2;
 }
 
 message AppliedState {
@@ -94,17 +94,16 @@ message AppliedState {
 }
 
 message Applied {
-   	ViewStamp ViewStamp                    = 1 [(gogoproto.nullable) = false];
+   	ViewStamp view_stamp                   = 1 [(gogoproto.nullable) = false];
 	ConfigurationState configuration_state = 2 [(gogoproto.nullable) = false];
 }
 
 message ConfigurationState {
-	uint64 epoch             = 1;
-	uint64 oldConfiguration  = 2;
-
+	uint64 epoch_num                   = 1;
+	repeated uint64 old_configuration  = 2;
 	// The configuration. This is a sorted array containing
 	// the IP addresses of each of the 2f + 1 replicas.
-	repeated uint64 replicas = 3;
+	repeated uint64 configuration      = 3;
 }
 
 enum ConfigurationType {
@@ -114,8 +113,8 @@ enum ConfigurationType {
 }
 
 message Configuration {
-	ConfigurationType  Type        = 1;
-	uint64             ID          = 2;
-	uint64             ReplicaNum  = 3;
-	bytes              Context     = 4;
+	ConfigurationType  type        = 1;
+	uint64             id          = 2;
+	uint64             replica_num = 3;
+	bytes              context     = 4;
 }

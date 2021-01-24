@@ -13,10 +13,10 @@ type Status struct {
 	// persistent state
 	proto.HardState
 
-	Num        uint64             // current replica number
-	CommitNum  uint64             // logs that have been committed
-	AppliedNum uint64             // track the status that has been applied
-	Windows    map[uint64]Window  // peer's window control information, subject to primary
+	Num        uint64            // current replica number
+	CommitNum  uint64            // logs that have been committed
+	AppliedNum uint64            // track the status that has been applied
+	//Windows    map[uint64]window // peer's window control information, subject to primary
 }
 
 // build and package status
@@ -26,10 +26,12 @@ func getStatus(vr *VR) Status {
 	s.SoftState = *vr.softState()
 	s.AppliedNum = vr.opLog.appliedNum
 	if s.Role == Primary {
-		s.Windows = make(map[uint64]Window)
-		for num, window := range vr.windows {
+		/*
+		s.Windows = make(map[uint64]window)
+		for num, window := range vr.replicas {
 			s.Windows[num] = *window
 		}
+		*/
 	}
 	return s
 }

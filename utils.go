@@ -30,7 +30,7 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
-func IsLocalMessage(m proto.Message) bool {
+func IsIgnorableMessage(m proto.Message) bool {
 	return m.Type == proto.Change || m.Type == proto.Heartbeat
 }
 

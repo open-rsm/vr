@@ -2,6 +2,7 @@ package vr
 
 import (
 	"log"
+	"fmt"
 	"errors"
 	"context"
 	"github.com/open-rsm/vr/proto"
@@ -59,6 +60,7 @@ type replica struct {
 	doneC               chan struct{}
 	stopC               chan struct{}
 	statusC             chan chan Status
+	vr                  *VR
 }
 
 func newReplica() *replica {
@@ -86,6 +88,7 @@ func (r *replica) cycle(vr *VR) {
 	var prevAppliedStateOpNum uint64
 	var rd Ready
 
+	r.vr = vr
 	prim := None
 	prevSoftState := vr.softState()
 	prevHardState := nilHardState
@@ -120,7 +123,7 @@ func (r *replica) cycle(vr *VR) {
 			m.From = vr.replicaNum
 			vr.Call(m)
 		case m := <-r.receiveC:
-			if _, ok := vr.windows[m.From]; ok || !IsReplyMessage(m) {
+			if vr.windows.Exist(m.From) || !IsReplyMessage(m) {
 				vr.Call(m)
 			}
 		case rc := <-r.configurationC:
@@ -176,8 +179,14 @@ func (r *replica) Change(ctx context.Context) error {
 }
 
 func (r *replica) Step(ctx context.Context, m proto.Message) error {
-	if IsLocalMessage(m) {
+	if IsIgnorableMessage(m) {
 		return nil
+	}
+	// TODO: notify the outside that the system is doing reconfiguration
+	if r.vr != nil {
+		if r.vr.status == Transitioning {
+			return fmt.Errorf("vr.replica: doing reconfiguration")
+		}
 	}
 	return r.call(ctx, m)
 }
