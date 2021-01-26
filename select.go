@@ -11,7 +11,7 @@ const (
 // adopt the same scheme as the article, but the selection algorithm is
 // open to discussion, so in the aspect of engineering implementation,
 // it gives engineers more space to play and imagine.
-type selectFn func(proto.ViewStamp, map[uint64]*window, ... func()) uint64
+type selectFn func(vs proto.ViewStamp, windows int, f ... func()) uint64
 
 var selectors = []selectFn{
 	roundRobin,
@@ -19,8 +19,8 @@ var selectors = []selectFn{
 
 // The primary is chosen round-robin, starting with replica 1, as the
 // system moves to new views.
-func roundRobin(vs proto.ViewStamp, ws map[uint64]*window, _... func()) uint64 {
-	if n := vs.ViewNum % uint64(len(ws)); n != 0 {
+func roundRobin(vs proto.ViewStamp, windows int, _... func()) uint64 {
+	if n := vs.ViewNum % uint64(windows); n != 0 {
 		return n
 	}
 	return 1

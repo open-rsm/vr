@@ -257,7 +257,7 @@ func TestCommit(t *testing.T) {
 			AppliedNum:        0,
 		})
 		for j := 0; j < len(test.offsets); j++ {
-			vr.windows.Set(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
+			vr.progress.Set(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
 		}
 		vr.tryCommit()
 		if cn := vr.opLog.commitNum; cn != test.exp {
@@ -662,7 +662,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows.IndexOf(replicaB)
+		window := vr.progress.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -715,7 +715,7 @@ func TestPrimaryRecovery(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows.IndexOf(replicaB)
+		window := vr.progress.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -768,7 +768,7 @@ func TestPrimaryGetState(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.windows.IndexOf(replicaB)
+		window := vr.progress.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -814,16 +814,16 @@ func TestBroadcastHeartbeat(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		vr.appendEntry(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: uint64(i) + 1}})
 	}
-	vr.windows.Set(replicaB, 5, 6)
-	vr.windows.Set(replicaC, vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1)
+	vr.progress.Set(replicaB, 5, 6)
+	vr.progress.Set(replicaC, vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1)
 	vr.Call(proto.Message{Type: proto.Heartbeat})
 	msgs := vr.handleMessages()
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %v, expected 2", len(msgs))
 	}
 	expectedCommitMap := map[uint64]uint64{
-		2: min(vr.opLog.commitNum, vr.windows.IndexOf(2).Ack),
-		3: min(vr.opLog.commitNum, vr.windows.IndexOf(3).Ack),
+		2: min(vr.opLog.commitNum, vr.progress.IndexOf(2).Ack),
+		3: min(vr.opLog.commitNum, vr.progress.IndexOf(3).Ack),
 	}
 	for i, m := range msgs {
 		if m.Type != proto.Commit {
@@ -912,9 +912,9 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 		vr.opLog.append(prevEntries...)
 		vr.becomeReplica()
 		vr.becomePrimary()
-		vr.windows.Set(replicaB, test.offset, test.next)
+		vr.progress.Set(replicaB, test.offset, test.next)
 		vr.Call(requestMessage(replicaA, replicaA))
-		window := vr.windows.IndexOf(replicaB)
+		window := vr.progress.IndexOf(replicaB)
 		if window.Next != test.expNext {
 			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
 		}
@@ -971,111 +971,9 @@ func TestVRReplicas(t *testing.T) {
 			Store:             NewStore(),
 			AppliedNum:        0,
 		})
-		if !reflect.DeepEqual(r.windows.Replicas(), test.expPeers) {
-			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.windows.Replicas(), test.expPeers)
+		if !reflect.DeepEqual(r.progress.Replicas(), test.expPeers) {
+			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.progress.Replicas(), test.expPeers)
 		}
-	}
-}
-
-func TestWindowUpdate(t *testing.T) {
-	prevOffset, prevNext := uint64(3), uint64(5)
-	cases := []struct {
-		update    uint64
-		expOffset uint64
-		expNext   uint64
-	}{
-		{prevOffset - 1,prevOffset,prevNext},
-		{prevOffset,prevOffset,prevNext},
-		{prevOffset + 1,prevOffset + 1,prevNext},
-		{prevOffset + 2,prevOffset + 2,prevNext + 1},
-	}
-	for i, test := range cases {
-		s := &window{
-			Ack:  prevOffset,
-			Next: prevNext,
-		}
-		s.update(test.update)
-		if s.Ack != test.expOffset {
-			t.Errorf("#%d: prev offset= %d, expected %d", i, s.Ack, test.expOffset)
-		}
-		if s.Next != test.expNext {
-			t.Errorf("#%d: prev next= %d, expected %d", i, s.Next, test.expNext)
-		}
-	}
-}
-
-func TestWindowTryDec(t *testing.T) {
-	cases := []struct {
-		offset  uint64
-		next    uint64
-		ignored uint64
-		last    uint64
-		exp     bool
-		expNext uint64
-	}{
-		{1,0,0,0,false,0 },
-		{5,10,5,5,false,10 },
-		{5,10,4,4,false,10 },
-		{5,10,9,9,true,6 },
-		{0,0,0,0,false,0 },
-		{0,10,5,5,false,10 },
-		{0,10,9,9,true,9 },
-		{0,2,1,1,true,1 },
-		{0,1,0,0,true,1 },
-		{0,10,9,2,true,3 },
-		{0,10,9,0,true,1 },
-	}
-	for i, test := range cases {
-		s := &window{
-			Ack:  test.offset,
-			Next: test.next,
-		}
-		if rv := s.tryDecTo(test.ignored, test.last); rv != test.exp {
-			t.Errorf("#%d: try dec to= %t, expected %t", i, rv, test.exp)
-		}
-		if s.Ack != test.offset {
-			t.Errorf("#%d: offset= %d, expected %d", i, s.Ack, test.offset)
-		}
-		if s.Next != test.expNext {
-			t.Errorf("#%d: next= %d, expected %d", i, s.Next, test.expNext)
-		}
-	}
-}
-
-func TestWindowNeedDelay(t *testing.T) {
-	cases := []struct {
-		offset uint64
-		delay  int
-		exp    bool
-	}{
-		{1,0,false},
-		{1,1,false},
-		{0,1,true},
-		{0,0,false},
-	}
-	for i, test := range cases {
-		s := &window{
-			Ack:   test.offset,
-			Delay: test.delay,
-		}
-		if rv := s.needDelay(); rv != test.exp {
-			t.Errorf("#%d: need delay = %t, expected %t", i, rv, test.exp)
-		}
-	}
-}
-
-func TestWindowDelayReset(t *testing.T) {
-	s := &window{
-		Delay: 1,
-	}
-	s.tryDecTo(1, 1)
-	if s.Delay != 0 {
-		t.Errorf("delay= %d, expected 0", s.Delay)
-	}
-	s.Delay = 1
-	s.update(2)
-	if s.Delay != 0 {
-		t.Errorf("delay= %d, expected 0", s.Delay)
 	}
 }
 
@@ -1090,10 +988,10 @@ func TestWindowDec(t *testing.T) {
 	})
 	r.becomeReplica()
 	r.becomePrimary()
-	r.windows.IndexOf(replicaB).delaySet(r.heartbeatTimeout * 2)
+	r.progress.IndexOf(replicaB).DelaySet(r.heartbeatTimeout * 2)
 	r.Call(proto.Message{From: 1, To: 1, Type: proto.Heartbeat})
-	if r.windows.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
-		t.Errorf("delay = %d, expected %d", r.windows.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
+	if r.progress.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
+		t.Errorf("delay = %d, expected %d", r.progress.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
 	}
 }
 

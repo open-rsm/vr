@@ -16,7 +16,7 @@ func TestReplicaCall(t *testing.T) {
 			receiveC: make(chan proto.Message, 1),
 		}
 		mt := proto.MessageType(i)
-		r.Step(context.TODO(), proto.Message{Type: mt})
+		r.Call(context.TODO(), proto.Message{Type: mt})
 		if mt == proto.Request {
 			select {
 			case <-r.requestC:
@@ -60,7 +60,7 @@ func TestReplicaCallNonblocking(t *testing.T) {
 	for i, test := range cases {
 		errC := make(chan error, 1)
 		go func() {
-			err := r.Step(ctx, proto.Message{Type: proto.Request})
+			err := r.Call(ctx, proto.Message{Type: proto.Request})
 			errC <- err
 		}()
 		test.unblock()
@@ -101,7 +101,7 @@ func TestReplicaRequest(t *testing.T) {
 	go r.cycle(vr)
 	r.Change(context.TODO())
 	for {
-		f := <-r.Ready()
+		f := <-r.Tuple()
 		store.Append(f.PersistentEntries)
 		if f.SoftState.Prim == vr.replicaNum {
 			vr.call = appendCall
@@ -110,7 +110,7 @@ func TestReplicaRequest(t *testing.T) {
 		}
 		r.Advance()
 	}
-	r.Step(context.TODO(), proto.Message{
+	r.Call(context.TODO(), proto.Message{
 		Type:    proto.Request,
 		Entries: []proto.Entry{{Data: []byte("testdata")}}},
 	)
@@ -185,14 +185,14 @@ func TestReplicaStop(t *testing.T) {
 
 func TestReadyPreCheck(t *testing.T) {
 	cases := []struct {
-		f     Tuples
+		f     Tuple
 		check bool
 	}{
-		{Tuples{}, false},
-		{Tuples{SoftState: &SoftState{Prim: 1}}, true},
-		{Tuples{PersistentEntries: make([]proto.Entry, 1, 1)}, true},
-		{Tuples{ApplicableEntries: make([]proto.Entry, 1, 1)}, true},
-		{Tuples{Messages: make([]proto.Message, 1, 1)}, true},
+		{Tuple{}, false},
+		{Tuple{SoftState: &SoftState{Prim: 1}}, true},
+		{Tuple{PersistentEntries: make([]proto.Entry, 1, 1)}, true},
+		{Tuple{ApplicableEntries: make([]proto.Entry, 1, 1)}, true},
+		{Tuple{Messages: make([]proto.Message, 1, 1)}, true},
 	}
 	for i, test := range cases {
 		if rv := test.f.PreCheck(); rv != test.check {
@@ -207,7 +207,7 @@ func TestReplicaRestart(t *testing.T) {
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 2}, Data: []byte("foo")},
 	}
 	hs := proto.HardState{ViewStamp: proto.ViewStamp{ViewNum: 1}, CommitNum: 1}
-	f := Tuples{
+	f := Tuple{
 		HardState:         hs,
 		ApplicableEntries: entries[:hs.CommitNum],
 	}
@@ -223,13 +223,13 @@ func TestReplicaRestart(t *testing.T) {
 		Store:             bs,
 		AppliedNum:        0,
 	})
-	if g := <-n.Ready(); !reflect.DeepEqual(g, f) {
+	if g := <-n.Tuple(); !reflect.DeepEqual(g, f) {
 		t.Errorf("g = %+v,\n f %+v", g, f)
 	}
 	n.Advance()
 	select {
-	case f := <-n.Ready():
-		t.Errorf("unexpecteded Tuples: %+v", f)
+	case f := <-n.Tuple():
+		t.Errorf("unexpecteded Tuple: %+v", f)
 	case <-time.After(time.Millisecond):
 	}
 }
@@ -247,18 +247,18 @@ func TestReplicaAdvance(t *testing.T) {
 		AppliedNum:        0,
 	})
 	r.Change(ctx)
-	<-r.Ready()
-	r.Step(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("foo")}}})
-	var f Tuples
+	<-r.Tuple()
+	r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("foo")}}})
+	var f Tuple
 	select {
-	case f = <-r.Ready():
+	case f = <-r.Tuple():
 		t.Fatalf("unexpecteded ready before advance: %+v", f)
 	case <-time.After(time.Millisecond):
 	}
 	bs.Append(f.PersistentEntries)
 	r.Advance()
 	select {
-	case <-r.Ready():
+	case <-r.Tuple():
 	case <-time.After(time.Millisecond):
 		t.Errorf("expected ready after advance, but there is no ready available")
 	}

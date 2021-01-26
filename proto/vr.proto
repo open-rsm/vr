@@ -100,6 +100,8 @@ message Applied {
 
 message ConfigurationState {
 	uint64 epoch_num                   = 1;
+    // New replicas use the old-configuration for state transfer at the
+	// start of an epoch; this way new nodes know where to get the state.
 	repeated uint64 old_configuration  = 2;
 	// The configuration. This is a sorted array containing
 	// the IP addresses of each of the 2f + 1 replicas.
@@ -112,8 +114,8 @@ enum ConfigurationType {
 }
 
 message Configuration {
-	ConfigurationType  type        = 1;
-	uint64             id          = 2;
-	uint64             replica_num = 3;
-	bytes              context     = 4;
+	ConfigurationType  type              = 1;
+	uint64             epoch_num         = 2;
+	uint64             new_configuration = 3;
+	bytes              context           = 4;
 }

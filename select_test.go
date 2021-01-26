@@ -7,26 +7,18 @@ import (
 )
 
 func testRoundRobin() error {
-	buildWindows := func(nums []uint64) map[uint64]*window {
-		var windows = map[uint64]*window{}
-		for _, num := range nums {
-			windows[num] = newWindow()
-		}
-		return windows
-	}
 	cases := []struct {
 		vs      proto.ViewStamp
 		peers   []uint64
-		windows func([]uint64) map[uint64]*window
 		expNum  uint64
 	}{
-		{proto.ViewStamp{ViewNum:replicaD},[]uint64{replicaA}, buildWindows,replicaA},
-		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaB, replicaC}, buildWindows, replicaA},
-		{proto.ViewStamp{ViewNum:replicaB},[]uint64{replicaA, replicaD}, buildWindows, replicaA},
-		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaC}, buildWindows, replicaA},
+		{proto.ViewStamp{ViewNum:replicaD},[]uint64{replicaA}, replicaA},
+		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaB, replicaC}, replicaA},
+		{proto.ViewStamp{ViewNum:replicaB},[]uint64{replicaA, replicaD}, replicaA},
+		{proto.ViewStamp{ViewNum:replicaC},[]uint64{replicaA, replicaC}, replicaA},
 	}
 	for i, test := range cases {
-		windows := test.windows(test.peers)
+		windows := len(test.peers)
 		if rv := roundRobin(test.vs, windows); rv != test.expNum {
 			return fmt.Errorf("#%d: round_robin = %v, expected %v", i, rv, test.expNum)
 		}

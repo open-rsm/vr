@@ -8,7 +8,7 @@ func saveStateToDisk(proto.HardState)  {}
 func saveEntriesToDisk([]proto.Entry) {}
 
 func ExampleReplicator() {
-	replica := StartReplica(&Config{
+	replicator := StartReplica(&Config{
 		Num:               1,
 		Peers:             nil,
 		TransitionTimeout: 0,
@@ -18,13 +18,13 @@ func ExampleReplicator() {
 	})
 	var prev proto.HardState
 	for {
-		rd := <-replica.Ready()
-		if !IsHardStateEqual(prev, rd.HardState) {
-			saveStateToDisk(rd.HardState)
-			prev = rd.HardState
+		tp := <-replicator.Tuple()
+		if !IsHardStateEqual(prev, tp.HardState) {
+			saveStateToDisk(tp.HardState)
+			prev = tp.HardState
 		}
-		saveEntriesToDisk(rd.PersistentEntries)
-		go applyToStore(rd.ApplicableEntries)
-		sendMessages(rd.Messages)
+		saveEntriesToDisk(tp.PersistentEntries)
+		go applyToStore(tp.ApplicableEntries)
+		sendMessages(tp.Messages)
 	}
 }

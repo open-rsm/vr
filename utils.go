@@ -2,20 +2,6 @@ package vr
 
 import "github.com/open-rsm/vr/proto"
 
-type uint64s []uint64
-
-func (r uint64s) Len() int {
-	return len(r)
-}
-
-func (r uint64s) Less(i, j int) bool {
-	return r[i] < r[j]
-}
-
-func (r uint64s) Swap(i, j int) {
-	r[i], r[j] = r[j], r[i]
-}
-
 func min(a, b uint64) uint64 {
 	if a > b {
 		return b

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"github.com/open-rsm/vr/proto"
+	"github.com/open-rsm/vr/progress"
 )
 
 const (
@@ -30,7 +31,7 @@ const (
 )
 
 // status name
-var statusName = [...]string{"Normal", "ViewChange", "Recovering"}
+var statusName = [...]string{"Normal", "ViewChange", "Recovering", "Transitioning"}
 
 // role type represents the current role of a replica in a cluster.
 type role uint64
@@ -75,11 +76,11 @@ func (c *Config) validate() error {
 	if err != nil {
 		return err
 	}
-	if len(cs.Replicas) > 0 {
+	if len(cs.Configuration) > 0 {
 		if len(c.Peers) > 0 {
 			return fmt.Errorf("vr: found that there are replicas in the configuration file, and ignore the user's input")
 		}
-		c.Peers = cs.Replicas
+		c.Peers = cs.Configuration
 	}
 	if n := len(c.Peers); c.Peers != nil && n < 1 {
 		return fmt.Errorf("vr: there are no available nodes in the replication group")
@@ -106,7 +107,7 @@ type VR struct {
 
 	replicaNum        uint64             // replica number, from 1 start
 	opLog             *opLog             // used to manage operation logs
-	windows           *Windows            // control and manage the current synchronization replicas
+	progress          *progress.Progress // control and manage the current synchronization replicas
 	status            status             // record the current replication group status
 	role              role               // mark the current replica role
 	views             [3]map[uint64]bool // count the views of each replica during the view change process
@@ -134,7 +135,7 @@ func newVR(c *Config) *VR {
 		replicaNum:        c.Num,
 		prim:              None,
 		opLog:             newOpLog(c.Store),
-		windows:           CreateWindows(c.Peers),
+		progress:          progress.New(c.Peers),
 		HardState:         hs,
 		transitionTimeout: int(c.TransitionTimeout),
 		heartbeatTimeout:  int(c.HeartbeatTimeout),
@@ -149,7 +150,7 @@ func newVR(c *Config) *VR {
 	}
 	vr.becomeBackup(vr.ViewStamp, None)
 	var replicaList []string
-	for _, n := range vr.windows.Replicas() {
+	for _, n := range vr.progress.Replicas() {
 		replicaList = append(replicaList, fmt.Sprintf("%x", n))
 	}
 	log.Printf("vr: new vr %x [nodes: [%s], view-number: %d, commit-number: %d, applied-number: %d, last-op-number: %d, last-view-number: %d]",
@@ -206,7 +207,7 @@ func (v *VR) existPrimary() bool {
 }
 
 func (v *VR) tryCommit() bool {
-	nums := v.windows.Progress()
+	nums := v.progress.Progress()
 	sort.Sort(sort.Reverse(nums))
 	num := nums[v.quorums()-1]
 	return v.opLog.tryCommit(num, v.ViewStamp.ViewNum)
@@ -225,7 +226,7 @@ func (v *VR) reset(ViewNum uint64) {
 	v.prim = None
 	v.pulse = 0
 	v.resetViews()
-	v.windows.Reset(v.opLog.lastOpNum(), v.replicaNum)
+	v.progress.Reset(v.opLog.lastOpNum(), v.replicaNum)
 }
 
 func (v *VR) Call(m proto.Message) error {
@@ -291,9 +292,8 @@ func (v *VR) send(m proto.Message) {
 }
 
 func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
-	//window := v.replicas[to]
-	window := v.windows.IndexOf(to)
-	if window.needDelay() {
+	window := v.progress.IndexOf(to)
+	if window.NeedDelay() {
 		return
 	}
 	m := proto.Message{
@@ -315,7 +315,7 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 		opNum, viewNum := state.Applied.ViewStamp.OpNum, state.Applied.ViewStamp.ViewNum
 		log.Printf("vr: %x [start op-number: %d, commit-number: %d] sent applied-number state[op-number: %d, view-number: %d] to %x [%s]",
 			v.replicaNum, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, window)
-		window.delaySet(v.transitionTimeout)
+		window.DelaySet(v.transitionTimeout)
 	} else {
 		m.Type = proto.Prepare
 		if typ != nil {
@@ -326,15 +326,15 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 		m.Entries = v.opLog.entries(window.Next)
 		m.CommitNum = v.opLog.commitNum
 		if n := len(m.Entries); window.Ack != 0 && n != 0 {
-			window.niceUpdate(m.Entries[n-1].ViewStamp.OpNum)
+			window.NiceUpdate(m.Entries[n-1].ViewStamp.OpNum)
 		} else if window.Ack == 0 {
-			window.delaySet(v.heartbeatTimeout)
+			window.DelaySet(v.heartbeatTimeout)
 		}
 	}
 }
 
 func (v *VR) sendHeartbeat(to uint64) {
-	commit := min(v.windows.IndexOf(to).Ack, v.opLog.commitNum)
+	commit := min(v.progress.IndexOf(to).Ack, v.opLog.commitNum)
 	v.send(proto.Message{
 		To:        to,
 		Type:      proto.Commit,
@@ -374,11 +374,11 @@ func (v *VR) clockHeartbeat() {
 }
 
 func (v *VR) raising() bool {
-	return v.windows.Exist(v.replicaNum)
+	return v.progress.Exist(v.replicaNum)
 }
 
 func (v *VR) broadcastAppend() {
-	for num := range v.windows.List() {
+	for num := range v.progress.List() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -387,12 +387,12 @@ func (v *VR) broadcastAppend() {
 }
 
 func (v *VR) broadcastHeartbeat() {
-	for num := range v.windows.List() {
+	for num := range v.progress.List() {
 		if num == v.replicaNum {
 			continue
 		}
 		v.sendHeartbeat(num)
-		v.windows.IndexOf(num).delayDec(v.heartbeatTimeout)
+		v.progress.IndexOf(num).DelayDec(v.heartbeatTimeout)
 	}
 }
 
@@ -402,7 +402,7 @@ func change(v *VR) {
 		v.becomePrimary()
 		return
 	}
-	for num := range v.windows.List() {
+	for num := range v.progress.List() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -420,7 +420,7 @@ func startViewChange(v *VR, m *proto.Message) {
 	}
 	views := v.collect(num, view, StartViewChange)
 	if views == 1 && !v.take(v.replicaNum, Change) {
-		for num := range v.windows.List() {
+		for num := range v.progress.List() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -438,9 +438,9 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.selected(v.ViewStamp, v.windows.List()); num != v.replicaNum {
+	if num := v.selected(v.ViewStamp, v.progress.Len()); num != v.replicaNum {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, replicas: %d",
-				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.windows.Len())
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.progress.Len())
 		v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.DoViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		return
 	} else {
@@ -453,7 +453,7 @@ func doViewChange(v *VR, m *proto.Message) {
 		num = m.From
 	}
 	if v.quorums() == v.collect(num, view, DoViewChange) {
-		for num := range v.windows.List() {
+		for num := range v.progress.List() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -480,15 +480,15 @@ func callPrimary(v *VR, m proto.Message) {
 		v.appendEntry(m.Entries...)
 		v.broadcastAppend()
 	case proto.PrepareOk:
-		delay := v.windows.IndexOf(m.From).needDelay()
-		v.windows.IndexOf(m.From).update(m.ViewStamp.OpNum)
+		delay := v.progress.IndexOf(m.From).NeedDelay()
+		v.progress.IndexOf(m.From).Update(m.ViewStamp.OpNum)
 		if v.tryCommit() {
 			v.broadcastAppend()
 		} else if delay {
 			v.sendAppend(m.From)
 		}
 	case proto.CommitOk:
-		if v.windows.IndexOf(m.From).Ack < v.opLog.lastOpNum() {
+		if v.progress.IndexOf(m.From).Ack < v.opLog.lastOpNum() {
 			v.sendAppend(m.From)
 		}
 	case proto.StartViewChange, proto.DoViewChange:
@@ -502,17 +502,19 @@ func callPrimary(v *VR, m proto.Message) {
 		// TODO: verify the source
 		log.Printf("vr: %x received recovery (last-op-number: %d) from %x for op-number %d to recovery response",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.windows.IndexOf(m.From).tryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.windows.IndexOf(m.From))
+		if v.progress.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.progress.IndexOf(m.From))
 			v.sendAppend(m.From, proto.RecoveryResponse)
 		}
 	case proto.GetState:
 		log.Printf("vr: %x received get state (last-op-number: %d) from %x for op-number %d to new state",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.windows.IndexOf(m.From).tryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.windows.IndexOf(m.From))
+		if v.progress.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.progress.IndexOf(m.From))
 			v.sendAppend(m.From, proto.NewState)
 		}
+	case proto.EpochStarted:
+
 	}
 }
 
@@ -580,6 +582,7 @@ func callBackup(v *VR, m proto.Message) {
 		v.pulse = 0
 		v.prim = m.From
 		v.handleAppend(m)
+	case proto.StartEpoch:
 	}
 }
 
@@ -590,7 +593,7 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 		entries[i].ViewStamp.OpNum = lo + uint64(i) + 1
 	}
 	v.opLog.append(entries...)
-	v.windows.IndexOf(v.replicaNum).update(v.opLog.lastOpNum())
+	v.progress.IndexOf(v.replicaNum).Update(v.opLog.lastOpNum())
 	// TODO need check return value?
 	v.tryCommit()
 }
@@ -639,7 +642,7 @@ func (v *VR) softState() *SoftState {
 }
 
 func (v *VR) quorum() int {
-	return v.windows.Len()/2
+	return v.progress.Len()/2
 }
 
 func (v *VR) quorums() int {
@@ -661,14 +664,14 @@ func (v *VR) initSelector(num int) {
 }
 
 func (v *VR) createReplicator(num uint64) {
-	if v.windows.Exist(num) {
+	if v.progress.Exist(num) {
 		return
 	}
-	v.windows.Set(num,0, v.opLog.lastOpNum()+1)
+	v.progress.Set(num,0, v.opLog.lastOpNum()+1)
 }
 
 func (v *VR) destroyReplicator(num uint64) {
-	v.windows.Del(num)
+	v.progress.Del(num)
 }
 
 func (v *VR) isTransitionTimeout() bool {

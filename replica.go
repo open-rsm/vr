@@ -20,10 +20,10 @@ type Option struct {
 type Replicator interface {
 	Advance()
 	Change(ctx context.Context) error
+	Call(context.Context, proto.Message) error
 	Clock()
-	Ready(...Option) <-chan Tuples
 	Reconfiguration(proto.Configuration) *proto.ConfigurationState
-	Step(context.Context, proto.Message) error
+	Tuple(...Option) <-chan Tuple
 	Status() Status
 	Stop()
 }
@@ -51,7 +51,7 @@ func RestartReplica(c *Config) Replicator {
 type replica struct {
 	requestC            chan proto.Message
 	receiveC            chan proto.Message
-	readyC              chan Tuples
+	tupleC              chan Tuple
 	advanceC            chan struct{}
 	clockC              chan struct{}
 	configurationC      chan proto.Configuration
@@ -65,7 +65,7 @@ func newReplica() *replica {
 	return &replica{
 		requestC:            make(chan proto.Message),
 		receiveC:            make(chan proto.Message),
-		readyC:              make(chan Tuples),
+		tupleC:              make(chan Tuple),
 		advanceC:            make(chan struct{}),
 		configurationC:      make(chan proto.Configuration),
 		configurationStateC: make(chan proto.ConfigurationState),
@@ -78,13 +78,13 @@ func newReplica() *replica {
 
 func (r *replica) cycle(vr *VR) {
 	var requestC chan proto.Message
-	var readyC chan Tuples
+	var tupleC chan Tuple
 	var advanceC chan struct{}
 	var prevUnsafeOpNum uint64
 	var prevUnsafeViewNum uint64
 	var needToSafe bool
 	var prevAppliedStateOpNum uint64
-	var tp Tuples
+	var tp Tuple
 
 	prim := None
 	prevSoftState := vr.softState()
@@ -106,13 +106,13 @@ func (r *replica) cycle(vr *VR) {
 			prim = vr.prim
 		}
 		if advanceC != nil {
-			readyC = nil
+			tupleC = nil
 		} else {
-			tp = newTuples(vr, prevSoftState, prevHardState)
+			tp = newTuple(vr, prevSoftState, prevHardState)
 			if tp.PreCheck() {
-				readyC = r.readyC
+				tupleC = r.tupleC
 			} else {
-				readyC = nil
+				tupleC = nil
 			}
 		}
 		select {
@@ -120,7 +120,7 @@ func (r *replica) cycle(vr *VR) {
 			m.From = vr.replicaNum
 			vr.Call(m)
 		case m := <-r.receiveC:
-			if vr.windows.Exist(m.From) || !IsReplyMessage(m) {
+			if vr.progress.Exist(m.From) || !IsReplyMessage(m) {
 				vr.Call(m)
 			}
 		case <-advanceC:
@@ -134,7 +134,7 @@ func (r *replica) cycle(vr *VR) {
 			// TODO: need to check?
 			vr.opLog.safeAppliedStateTo(prevAppliedStateOpNum)
 			advanceC = nil
-		case readyC <- tp:
+		case tupleC <- tp:
 			if n := len(tp.PersistentEntries); n > 0 {
 				prevUnsafeOpNum = tp.PersistentEntries[n-1].ViewStamp.OpNum
 				prevUnsafeViewNum = tp.PersistentEntries[n-1].ViewStamp.ViewNum
@@ -175,7 +175,7 @@ func (r *replica) Change(ctx context.Context) error {
 	return r.call(ctx, proto.Message{Type: proto.Change})
 }
 
-func (r *replica) Step(ctx context.Context, m proto.Message) error {
+func (r *replica) Call(ctx context.Context, m proto.Message) error {
 	if IsIgnorableMessage(m) {
 		return nil
 	}
@@ -198,7 +198,7 @@ func (r *replica) call(ctx context.Context, m proto.Message) error {
 	}
 }
 
-func (r *replica) Ready(opt ...Option) <-chan Tuples {
+func (r *replica) Tuple(opt ...Option) <-chan Tuple {
 	if opt != nil {
 		for _, this := range opt {
 			if f := this.Filter; f != nil {
@@ -206,7 +206,7 @@ func (r *replica) Ready(opt ...Option) <-chan Tuples {
 			}
 		}
 	}
-	return r.readyC
+	return r.tupleC
 }
 
 func (r *replica) Reconfiguration(c proto.Configuration) *proto.ConfigurationState {
@@ -257,7 +257,7 @@ func (r *SoftState) equal(ss *SoftState) bool {
 	return r.Prim == ss.Prim && r.Role == ss.Role
 }
 
-type Tuples struct {
+type Tuple struct {
 	proto.AppliedState
 	proto.HardState
 	*SoftState
@@ -267,8 +267,8 @@ type Tuples struct {
 	Messages          []proto.Message
 }
 
-func newTuples(vr *VR, prevSS *SoftState, prevHS proto.HardState) Tuples {
-	t := Tuples{
+func newTuple(vr *VR, prevSS *SoftState, prevHS proto.HardState) Tuple {
+	t := Tuple{
 		PersistentEntries: vr.opLog.unsafeEntries(),
 		ApplicableEntries: vr.opLog.safeEntries(),
 		Messages:          vr.messages,
@@ -285,7 +285,7 @@ func newTuples(vr *VR, prevSS *SoftState, prevHS proto.HardState) Tuples {
 	return t
 }
 
-func (t Tuples) PreCheck() bool {
+func (t Tuple) PreCheck() bool {
 	return t.SoftState != nil || !IsInvalidHardState(t.HardState) || len(t.PersistentEntries) > 0 ||
 		len(t.ApplicableEntries) > 0 || len(t.Messages) > 0
 }
