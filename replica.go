@@ -22,6 +22,8 @@ type Replicator interface {
 	Change(ctx context.Context) error
 	Call(context.Context, proto.Message) error
 	Clock()
+	Membership(context.Context, proto.Configuration)
+	Propose(context.Context, []byte)
 	Reconfiguration(proto.Configuration) *proto.ConfigurationState
 	Tuple(...Option) <-chan Tuple
 	Status() Status
@@ -196,6 +198,18 @@ func (r *replica) call(ctx context.Context, m proto.Message) error {
 	case <-r.doneC:
 		return ErrStopped
 	}
+}
+
+func (r *replica) Membership(ctx context.Context, cfg proto.Configuration) {
+	data, err := cfg.Marshal()
+	if err != nil {
+		log.Fatal("vr.replica membership configure data marshal error ", err)
+	}
+	r.Call(ctx, proto.Message{Type: proto.StartEpoch, Entries: []proto.Entry{{Type:proto.Configure, Data: data}}})
+}
+
+func (r *replica) Propose(ctx context.Context, data []byte) {
+	r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Log, Data: data}}})
 }
 
 func (r *replica) Tuple(opt ...Option) <-chan Tuple {
