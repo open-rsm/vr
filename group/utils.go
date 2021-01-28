@@ -1,4 +1,4 @@
-package progress
+package group
 
 type uint64s []uint64
 

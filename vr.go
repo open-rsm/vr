@@ -6,10 +6,9 @@ import (
 	"math"
 	"math/rand"
 	"time"
-	"sort"
 	"strings"
 	"github.com/open-rsm/vr/proto"
-	"github.com/open-rsm/vr/progress"
+	"github.com/open-rsm/vr/group"
 )
 
 const (
@@ -105,22 +104,22 @@ type VR struct {
 	// The key state of the replication group that has landed
 	proto.HardState
 
-	replicaNum        uint64             // replica number, from 1 start
-	opLog             *opLog             // used to manage operation logs
-	progress          *progress.Progress // control and manage the current synchronization replicas
-	status            status             // record the current replication group status
-	role              role               // mark the current replica role
-	views             [3]map[uint64]bool // count the views of each replica during the view change process
-	messages          []proto.Message    // temporarily store messages that need to be sent
-	prim              uint64             // who is the primary ?
-	pulse             int                // occurrence frequency
-	transitionTimeout int                // maximum processing time for primary
-	heartbeatTimeout  int                // maximum waiting time for backups
-	rand              *rand.Rand         // generate random seed
-	call              callFn             // intervention automaton device through external events
-	clock             clockFn            // drive clock oscillator
-	selected          selectFn           // new primary node selection algorithm
-	seq               uint64             // monotonically increasing number
+	replicaNum uint64             // replica number, from 1 start
+	opLog      *opLog             // used to manage operation logs
+	group      *group.Group       // control and manage the current synchronization replicas
+	status     status             // record the current replication group status
+	role       role               // mark the current replica role
+	views      [3]map[uint64]bool // count the views of each replica during the view change process
+	messages   []proto.Message    // temporarily store messages that need to be sent
+	prim       uint64             // who is the primary ?
+	pulse      int                // occurrence frequency
+	transitionTimeout int         // maximum processing time for primary
+	heartbeatTimeout  int         // maximum waiting time for backups
+	rand              *rand.Rand  // generate random seed
+	call              callFn      // intervention automaton device through external events
+	clock             clockFn     // drive clock oscillator
+	selected   selectFn           // new primary node selection algorithm
+	seq        uint64             // monotonically increasing number
 }
 
 func newVR(c *Config) *VR {
@@ -135,7 +134,7 @@ func newVR(c *Config) *VR {
 		replicaNum:        c.Num,
 		prim:              None,
 		opLog:             newOpLog(c.Store),
-		progress:          progress.New(c.Peers),
+		group:             group.New(c.Peers),
 		HardState:         hs,
 		transitionTimeout: int(c.TransitionTimeout),
 		heartbeatTimeout:  int(c.HeartbeatTimeout),
@@ -150,7 +149,7 @@ func newVR(c *Config) *VR {
 	}
 	vr.becomeBackup(vr.ViewStamp, None)
 	var replicaList []string
-	for _, n := range vr.progress.Replicas() {
+	for _, n := range vr.group.Replicas() {
 		replicaList = append(replicaList, fmt.Sprintf("%x", n))
 	}
 	log.Printf("vr: new vr %x [nodes: [%s], view-number: %d, commit-number: %d, applied-number: %d, last-op-number: %d, last-view-number: %d]",
@@ -207,10 +206,7 @@ func (v *VR) existPrimary() bool {
 }
 
 func (v *VR) tryCommit() bool {
-	nums := v.progress.Progress()
-	sort.Sort(sort.Reverse(nums))
-	num := nums[v.quorums()-1]
-	return v.opLog.tryCommit(num, v.ViewStamp.ViewNum)
+	return v.opLog.tryCommit(v.group.Commit(), v.ViewStamp.ViewNum)
 }
 
 func (v *VR) resetViews()  {
@@ -226,7 +222,7 @@ func (v *VR) reset(ViewNum uint64) {
 	v.prim = None
 	v.pulse = 0
 	v.resetViews()
-	v.progress.Reset(v.opLog.lastOpNum(), v.replicaNum)
+	v.group.Reset(v.opLog.lastOpNum(), v.replicaNum)
 }
 
 func (v *VR) Call(m proto.Message) error {
@@ -292,11 +288,12 @@ func (v *VR) send(m proto.Message) {
 }
 
 func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
-	window := v.progress.IndexOf(to)
+	window := v.group.IndexOf(to)
 	if window.NeedDelay() {
 		return
 	}
 	m := proto.Message{
+		Type: proto.Prepare,
 		To: to,
 	}
 	defer func() {
@@ -316,25 +313,24 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 		log.Printf("vr: %x [start op-number: %d, commit-number: %d] sent applied-number state[op-number: %d, view-number: %d] to %x [%s]",
 			v.replicaNum, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, window)
 		window.DelaySet(v.transitionTimeout)
-	} else {
-		m.Type = proto.Prepare
-		if typ != nil {
-			m.Type = typ[0]
-		}
-		m.ViewStamp.OpNum = window.Next - 1
-		m.LogNum = v.opLog.viewNum(window.Next-1)
-		m.Entries = v.opLog.entries(window.Next)
-		m.CommitNum = v.opLog.commitNum
-		if n := len(m.Entries); window.Ack != 0 && n != 0 {
-			window.NiceUpdate(m.Entries[n-1].ViewStamp.OpNum)
-		} else if window.Ack == 0 {
-			window.DelaySet(v.heartbeatTimeout)
-		}
+		return
+	}
+	if typ != nil {
+		m.Type = typ[0]
+	}
+	m.ViewStamp.OpNum = window.Next - 1
+	m.LogNum = v.opLog.viewNum(window.Next-1)
+	m.Entries = v.opLog.entries(window.Next)
+	m.CommitNum = v.opLog.commitNum
+	if n := len(m.Entries); window.Ack != 0 && n != 0 {
+		window.NiceUpdate(m.Entries[n-1].ViewStamp.OpNum)
+	} else if window.Ack == 0 {
+		window.DelaySet(v.heartbeatTimeout)
 	}
 }
 
 func (v *VR) sendHeartbeat(to uint64) {
-	commit := min(v.progress.IndexOf(to).Ack, v.opLog.commitNum)
+	commit := min(v.group.IndexOf(to).Ack, v.opLog.commitNum)
 	v.send(proto.Message{
 		To:        to,
 		Type:      proto.Commit,
@@ -374,11 +370,11 @@ func (v *VR) clockHeartbeat() {
 }
 
 func (v *VR) raising() bool {
-	return v.progress.Exist(v.replicaNum)
+	return v.group.Exist(v.replicaNum)
 }
 
 func (v *VR) broadcastAppend() {
-	for num := range v.progress.List() {
+	for num := range v.group.List() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -387,22 +383,22 @@ func (v *VR) broadcastAppend() {
 }
 
 func (v *VR) broadcastHeartbeat() {
-	for num := range v.progress.List() {
+	for num := range v.group.List() {
 		if num == v.replicaNum {
 			continue
 		}
 		v.sendHeartbeat(num)
-		v.progress.IndexOf(num).DelayDec(v.heartbeatTimeout)
+		v.group.IndexOf(num).DelayDec(v.heartbeatTimeout)
 	}
 }
 
 func change(v *VR) {
 	v.becomeReplica()
-	if v.quorums() == v.collect(v.replicaNum, true, Change) {
+	if v.group.Quorum() == v.collect(v.replicaNum, true, Change) {
 		v.becomePrimary()
 		return
 	}
-	for num := range v.progress.List() {
+	for num := range v.group.List() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -420,7 +416,7 @@ func startViewChange(v *VR, m *proto.Message) {
 	}
 	views := v.collect(num, view, StartViewChange)
 	if views == 1 && !v.take(v.replicaNum, Change) {
-		for num := range v.progress.List() {
+		for num := range v.group.List() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -429,7 +425,7 @@ func startViewChange(v *VR, m *proto.Message) {
 			v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.StartViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		}
 	}
-	if v.quorum() == views {
+	if v.group.Faulty() == views {
 		log.Printf("vr: %x has received %d views, start send DO-VIEW-CHANGE message", v.replicaNum, views)
 		doViewChange(v, m)
 	}
@@ -438,9 +434,9 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.selected(v.ViewStamp, v.progress.Len()); num != v.replicaNum {
+	if num := v.selected(v.ViewStamp, v.group.Windows()); num != v.replicaNum {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, replicas: %d",
-				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.progress.Len())
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.group.Windows())
 		v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.DoViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		return
 	} else {
@@ -452,8 +448,8 @@ func doViewChange(v *VR, m *proto.Message) {
 	if m != nil {
 		num = m.From
 	}
-	if v.quorums() == v.collect(num, view, DoViewChange) {
-		for num := range v.progress.List() {
+	if v.group.Quorum() == v.collect(num, view, DoViewChange) {
+		for num := range v.group.List() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -480,15 +476,15 @@ func callPrimary(v *VR, m proto.Message) {
 		v.appendEntry(m.Entries...)
 		v.broadcastAppend()
 	case proto.PrepareOk:
-		delay := v.progress.IndexOf(m.From).NeedDelay()
-		v.progress.IndexOf(m.From).Update(m.ViewStamp.OpNum)
+		delay := v.group.IndexOf(m.From).NeedDelay()
+		v.group.IndexOf(m.From).Update(m.ViewStamp.OpNum)
 		if v.tryCommit() {
 			v.broadcastAppend()
 		} else if delay {
 			v.sendAppend(m.From)
 		}
 	case proto.CommitOk:
-		if v.progress.IndexOf(m.From).Ack < v.opLog.lastOpNum() {
+		if v.group.IndexOf(m.From).Ack < v.opLog.lastOpNum() {
 			v.sendAppend(m.From)
 		}
 	case proto.StartViewChange, proto.DoViewChange:
@@ -502,15 +498,15 @@ func callPrimary(v *VR, m proto.Message) {
 		// TODO: verify the source
 		log.Printf("vr: %x received recovery (last-op-number: %d) from %x for op-number %d to recovery response",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.progress.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.progress.IndexOf(m.From))
+		if v.group.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.group.IndexOf(m.From))
 			v.sendAppend(m.From, proto.RecoveryResponse)
 		}
 	case proto.GetState:
 		log.Printf("vr: %x received get state (last-op-number: %d) from %x for op-number %d to new state",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.progress.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.progress.IndexOf(m.From))
+		if v.group.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.group.IndexOf(m.From))
 			v.sendAppend(m.From, proto.NewState)
 		}
 	case proto.EpochStarted:
@@ -593,7 +589,7 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 		entries[i].ViewStamp.OpNum = lo + uint64(i) + 1
 	}
 	v.opLog.append(entries...)
-	v.progress.IndexOf(v.replicaNum).Update(v.opLog.lastOpNum())
+	v.group.IndexOf(v.replicaNum).Update(v.opLog.lastOpNum())
 	// TODO need check return value?
 	v.tryCommit()
 }
@@ -641,14 +637,6 @@ func (v *VR) softState() *SoftState {
 	return &SoftState{Prim: v.prim, Role: v.role}
 }
 
-func (v *VR) quorum() int {
-	return v.progress.Len()/2
-}
-
-func (v *VR) quorums() int {
-	return v.quorum() + 1
-}
-
 func (v *VR) loadHardState(hs proto.HardState) {
 	if hs.CommitNum < v.opLog.commitNum || hs.CommitNum > v.opLog.lastOpNum() {
 		log.Panicf("vr: %x commit-number %d is out of range [%d, %d]",
@@ -664,14 +652,14 @@ func (v *VR) initSelector(num int) {
 }
 
 func (v *VR) createReplicator(num uint64) {
-	if v.progress.Exist(num) {
+	if v.group.Exist(num) {
 		return
 	}
-	v.progress.Set(num,0, v.opLog.lastOpNum()+1)
+	v.group.Set(num,0, v.opLog.lastOpNum()+1)
 }
 
 func (v *VR) destroyReplicator(num uint64) {
-	v.progress.Del(num)
+	v.group.Del(num)
 }
 
 func (v *VR) isTransitionTimeout() bool {

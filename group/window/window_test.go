@@ -1,4 +1,4 @@
-package progress
+package window
 
 import "testing"
 
@@ -15,7 +15,7 @@ func TestWindowUpdate(t *testing.T) {
 		{prevOffset + 2,prevOffset + 2,prevNext + 1},
 	}
 	for i, test := range cases {
-		s := &window{
+		s := &Window{
 			Ack:  prevOffset,
 			Next: prevNext,
 		}
@@ -51,7 +51,7 @@ func TestWindowTryDec(t *testing.T) {
 		{0,10,9,0,true,1 },
 	}
 	for i, test := range cases {
-		s := &window{
+		s := &Window{
 			Ack:  test.offset,
 			Next: test.next,
 		}
@@ -79,7 +79,7 @@ func TestWindowNeedDelay(t *testing.T) {
 		{0,0,false},
 	}
 	for i, test := range cases {
-		s := &window{
+		s := &Window{
 			Ack:   test.offset,
 			Delay: test.delay,
 		}
@@ -90,7 +90,7 @@ func TestWindowNeedDelay(t *testing.T) {
 }
 
 func TestWindowDelayReset(t *testing.T) {
-	s := &window{
+	s := &Window{
 		Delay: 1,
 	}
 	s.TryDecTo(1, 1)

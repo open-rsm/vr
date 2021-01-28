@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"github.com/open-rsm/vr/proto"
-	"github.com/open-rsm/vr/progress"
+	"github.com/open-rsm/vr/group"
 )
 
 type Node interface {
@@ -77,7 +77,7 @@ func (m *mock) build(index int, node Node, n int) error {
 		for i := 0; i < n; i++ {
 			peers = append(peers, m.numbers[i])
 		}
-		v.progress = progress.New(peers)
+		v.group = group.New(peers)
 		v.reset(0)
 		m.nodes[num] = v
 	default:

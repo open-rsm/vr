@@ -122,7 +122,7 @@ func (r *replica) cycle(vr *VR) {
 			m.From = vr.replicaNum
 			vr.Call(m)
 		case m := <-r.receiveC:
-			if vr.progress.Exist(m.From) || !IsReplyMessage(m) {
+			if vr.group.Exist(m.From) || !IsReplyMessage(m) {
 				vr.Call(m)
 			}
 		case <-advanceC:

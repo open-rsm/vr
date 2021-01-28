@@ -1,4 +1,4 @@
-package progress
+package window
 
 import "fmt"
 
@@ -10,9 +10,9 @@ const (
 
 // control and manage the current sync windows and status
 // for a replica
-type window struct {
+type Window struct {
 	// used to represent the progress status of the
-	// current window
+	// current Window
 	Status int
 	// the confirmed sync position of all nodes in the
 	// replication group
@@ -24,25 +24,25 @@ type window struct {
 	Next  uint64
 }
 
-func newWindow() *window {
-	return &window{
+func New() *Window {
+	return &Window{
 		Next: 1,
 	}
 }
 
-func (w *window) DelaySet(d int) {
+func (w *Window) DelaySet(d int) {
 	w.Delay = d
 }
 
-func (w *window) DelayReset() {
+func (w *Window) DelayReset() {
 	w.Delay = 0
 }
 
-func (w *window) NeedDelay() bool {
+func (w *Window) NeedDelay() bool {
 	return w.Ack == 0 && w.Delay > 0
 }
 
-func (w *window) Update(n uint64) {
+func (w *Window) Update(n uint64) {
 	w.DelayReset()
 	if w.Ack < n {
 		w.Ack = n
@@ -52,11 +52,11 @@ func (w *window) Update(n uint64) {
 	}
 }
 
-func (w *window) NiceUpdate(n uint64) {
+func (w *Window) NiceUpdate(n uint64) {
 	w.Next = n + 1
 }
 
-func (w *window) TryDecTo(ignored, last uint64) bool {
+func (w *Window) TryDecTo(ignored, last uint64) bool {
 	w.DelayReset()
 	if w.Ack != 0 {
 		if ignored <= w.Ack {
@@ -74,17 +74,17 @@ func (w *window) TryDecTo(ignored, last uint64) bool {
 	return true
 }
 
-func (w *window) DelayDec(i int) {
+func (w *Window) DelayDec(i int) {
 	w.Delay -= i
 	if w.Delay < 0 {
 		w.Delay = 0
 	}
 }
 
-func (w *window) DelayInc(i int) {
+func (w *Window) DelayInc(i int) {
 }
 
-func (w *window) String() string {
+func (w *Window) String() string {
 	return fmt.Sprintf("next = %d, offsets = %d, delay = %v", w.Next, w.Ack, w.Delay)
 }
 

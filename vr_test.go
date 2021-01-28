@@ -257,7 +257,7 @@ func TestCommit(t *testing.T) {
 			AppliedNum:        0,
 		})
 		for j := 0; j < len(test.offsets); j++ {
-			vr.progress.Set(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
+			vr.group.Set(uint64(j)+1, test.offsets[j], test.offsets[j]+1)
 		}
 		vr.tryCommit()
 		if cn := vr.opLog.commitNum; cn != test.exp {
@@ -662,7 +662,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.progress.IndexOf(replicaB)
+		window := vr.group.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -715,7 +715,7 @@ func TestPrimaryRecovery(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.progress.IndexOf(replicaB)
+		window := vr.group.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -768,7 +768,7 @@ func TestPrimaryGetState(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.progress.IndexOf(replicaB)
+		window := vr.group.IndexOf(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -814,16 +814,16 @@ func TestBroadcastHeartbeat(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		vr.appendEntry(proto.Entry{ViewStamp:proto.ViewStamp{OpNum: uint64(i) + 1}})
 	}
-	vr.progress.Set(replicaB, 5, 6)
-	vr.progress.Set(replicaC, vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1)
+	vr.group.Set(replicaB, 5, 6)
+	vr.group.Set(replicaC, vr.opLog.lastOpNum(), vr.opLog.lastOpNum()+1)
 	vr.Call(proto.Message{Type: proto.Heartbeat})
 	msgs := vr.handleMessages()
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %v, expected 2", len(msgs))
 	}
 	expectedCommitMap := map[uint64]uint64{
-		2: min(vr.opLog.commitNum, vr.progress.IndexOf(2).Ack),
-		3: min(vr.opLog.commitNum, vr.progress.IndexOf(3).Ack),
+		2: min(vr.opLog.commitNum, vr.group.IndexOf(2).Ack),
+		3: min(vr.opLog.commitNum, vr.group.IndexOf(3).Ack),
 	}
 	for i, m := range msgs {
 		if m.Type != proto.Commit {
@@ -912,9 +912,9 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 		vr.opLog.append(prevEntries...)
 		vr.becomeReplica()
 		vr.becomePrimary()
-		vr.progress.Set(replicaB, test.offset, test.next)
+		vr.group.Set(replicaB, test.offset, test.next)
 		vr.Call(requestMessage(replicaA, replicaA))
-		window := vr.progress.IndexOf(replicaB)
+		window := vr.group.IndexOf(replicaB)
 		if window.Next != test.expNext {
 			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
 		}
@@ -971,8 +971,8 @@ func TestVRReplicas(t *testing.T) {
 			Store:             NewStore(),
 			AppliedNum:        0,
 		})
-		if !reflect.DeepEqual(r.progress.Replicas(), test.expPeers) {
-			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.progress.Replicas(), test.expPeers)
+		if !reflect.DeepEqual(r.group.Replicas(), test.expPeers) {
+			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.group.Replicas(), test.expPeers)
 		}
 	}
 }
@@ -988,10 +988,10 @@ func TestWindowDec(t *testing.T) {
 	})
 	r.becomeReplica()
 	r.becomePrimary()
-	r.progress.IndexOf(replicaB).DelaySet(r.heartbeatTimeout * 2)
+	r.group.IndexOf(replicaB).DelaySet(r.heartbeatTimeout*2)
 	r.Call(proto.Message{From: 1, To: 1, Type: proto.Heartbeat})
-	if r.progress.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
-		t.Errorf("delay = %d, expected %d", r.progress.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
+	if r.group.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
+		t.Errorf("delay = %d, expected %d", r.group.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
 	}
 }
 

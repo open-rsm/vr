@@ -1,23 +1,26 @@
-package progress
+package group
 
-import "sort"
+import (
+	"sort"
+	"github.com/open-rsm/vr/group/window"
+)
 
 type Progress struct {
-	windows map[uint64]*window
-	warms   map[uint64]*window
+	windows map[uint64]*window.Window
+	warms   map[uint64]*window.Window
 }
 
-func New(peers []uint64) *Progress {
-	p := &Progress{
-		windows: make(map[uint64]*window),
+func newProgress(peers []uint64) Progress {
+	p := Progress{
+		windows: make(map[uint64]*window.Window),
 	}
 	for _, peer := range peers {
-		p.windows[peer] = newWindow()
+		p.windows[peer] = window.New()
 	}
 	return p
 }
 
-func (w *Progress) IndexOf(i uint64) *window {
+func (w *Progress) IndexOf(i uint64) *window.Window {
 	if r, ok := w.windows[i]; ok {
 		return r
 	}
@@ -32,12 +35,12 @@ func (w *Progress) Exist(i uint64) bool {
 	return false
 }
 
-func (w *Progress) Len() int {
+func (w *Progress) Windows() int {
 	return len(w.windows)
 }
 
 func (w *Progress) Progress() uint64s {
-	nums := make(uint64s, 0, w.Len())
+	nums := make(uint64s, 0, w.Windows())
 	for i := range w.windows {
 		nums = append(nums, w.windows[i].Ack)
 	}
@@ -46,19 +49,19 @@ func (w *Progress) Progress() uint64s {
 
 func (w *Progress) Reset(opNum, replicaNum uint64) {
 	for num := range w.windows {
-		w.windows[num] = &window{Next: opNum + 1}
+		w.windows[num] = &window.Window{Next: opNum + 1}
 		if num == replicaNum {
 			w.windows[num].Ack = opNum
 		}
 	}
 }
 
-func (w *Progress) List() map[uint64]*window {
+func (w *Progress) List() map[uint64]*window.Window {
 	return w.windows
 }
 
 func (w *Progress) Replicas() []uint64 {
-	replicas := make([]uint64, 0, w.Len())
+	replicas := make([]uint64, 0, w.Windows())
 	for window := range w.List() {
 		replicas = append(replicas, window)
 	}
@@ -67,7 +70,7 @@ func (w *Progress) Replicas() []uint64 {
 }
 
 func (w *Progress) Set(num, offset, next uint64) {
-	w.windows[num] = &window{Next: next, Ack: offset}
+	w.windows[num] = &window.Window{Next: next, Ack: offset}
 }
 
 func (w *Progress) Del(num uint64) {
