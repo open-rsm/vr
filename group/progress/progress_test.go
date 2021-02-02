@@ -1,27 +1,27 @@
-package window
+package progress
 
 import "testing"
 
-func TestWindowUpdate(t *testing.T) {
-	prevOffset, prevNext := uint64(3), uint64(5)
+func TestProgressUpdate(t *testing.T) {
+	prevAck, prevNext := uint64(3), uint64(5)
 	cases := []struct {
-		update    uint64
-		expOffset uint64
-		expNext   uint64
+		update  uint64
+		expAck  uint64
+		expNext uint64
 	}{
-		{prevOffset - 1,prevOffset,prevNext},
-		{prevOffset,prevOffset,prevNext},
-		{prevOffset + 1,prevOffset + 1,prevNext},
-		{prevOffset + 2,prevOffset + 2,prevNext + 1},
+		{prevAck - 1,prevAck,prevNext},
+		{prevAck,prevAck,prevNext},
+		{prevAck + 1,prevAck + 1,prevNext},
+		{prevAck + 2,prevAck + 2,prevNext + 1},
 	}
 	for i, test := range cases {
-		s := &Window{
-			Ack:  prevOffset,
+		s := &Progress{
+			Ack:  prevAck,
 			Next: prevNext,
 		}
 		s.Update(test.update)
-		if s.Ack != test.expOffset {
-			t.Errorf("#%d: prev offset= %d, expected %d", i, s.Ack, test.expOffset)
+		if s.Ack != test.expAck {
+			t.Errorf("#%d: prev ack= %d, expected %d", i, s.Ack, test.expAck)
 		}
 		if s.Next != test.expNext {
 			t.Errorf("#%d: prev next= %d, expected %d", i, s.Next, test.expNext)
@@ -29,9 +29,9 @@ func TestWindowUpdate(t *testing.T) {
 	}
 }
 
-func TestWindowTryDec(t *testing.T) {
+func TestProgressTryDec(t *testing.T) {
 	cases := []struct {
-		offset  uint64
+		ack  uint64
 		next    uint64
 		ignored uint64
 		last    uint64
@@ -51,15 +51,15 @@ func TestWindowTryDec(t *testing.T) {
 		{0,10,9,0,true,1 },
 	}
 	for i, test := range cases {
-		s := &Window{
-			Ack:  test.offset,
+		s := &Progress{
+			Ack:  test.ack,
 			Next: test.next,
 		}
 		if rv := s.TryDecTo(test.ignored, test.last); rv != test.exp {
 			t.Errorf("#%d: try dec to= %t, expected %t", i, rv, test.exp)
 		}
-		if s.Ack != test.offset {
-			t.Errorf("#%d: offset= %d, expected %d", i, s.Ack, test.offset)
+		if s.Ack != test.ack {
+			t.Errorf("#%d: ack= %d, expected %d", i, s.Ack, test.ack)
 		}
 		if s.Next != test.expNext {
 			t.Errorf("#%d: next= %d, expected %d", i, s.Next, test.expNext)
@@ -67,11 +67,11 @@ func TestWindowTryDec(t *testing.T) {
 	}
 }
 
-func TestWindowNeedDelay(t *testing.T) {
+func TestProgressNeedDelay(t *testing.T) {
 	cases := []struct {
-		offset uint64
-		delay  int
-		exp    bool
+		ack   uint64
+		delay int
+		exp   bool
 	}{
 		{1,0,false},
 		{1,1,false},
@@ -79,8 +79,8 @@ func TestWindowNeedDelay(t *testing.T) {
 		{0,0,false},
 	}
 	for i, test := range cases {
-		s := &Window{
-			Ack:   test.offset,
+		s := &Progress{
+			Ack:   test.ack,
 			Delay: test.delay,
 		}
 		if rv := s.NeedDelay(); rv != test.exp {
@@ -89,8 +89,8 @@ func TestWindowNeedDelay(t *testing.T) {
 	}
 }
 
-func TestWindowDelayReset(t *testing.T) {
-	s := &Window{
+func TestProgressDelayReset(t *testing.T) {
+	s := &Progress{
 		Delay: 1,
 	}
 	s.TryDecTo(1, 1)

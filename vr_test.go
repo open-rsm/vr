@@ -662,7 +662,7 @@ func TestPrimaryPrepareOk(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: proto.PrepareOk, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.group.IndexOf(replicaB)
+		window := vr.group.Replica(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -715,7 +715,7 @@ func TestPrimaryRecovery(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.group.IndexOf(replicaB)
+		window := vr.group.Replica(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -768,7 +768,7 @@ func TestPrimaryGetState(t *testing.T) {
 		vr.becomePrimary()
 		vr.handleMessages()
 		vr.Call(proto.Message{From: replicaB, Type: test.Type, ViewStamp:proto.ViewStamp{OpNum: test.opNum, ViewNum: vr.ViewStamp.ViewNum}, Note: test.opNum})
-		window := vr.group.IndexOf(replicaB)
+		window := vr.group.Replica(replicaB)
 		if window.Ack != test.expOffset {
 			t.Errorf("#%d offsets = %d, expected %d", i, window.Ack, test.expOffset)
 		}
@@ -822,8 +822,8 @@ func TestBroadcastHeartbeat(t *testing.T) {
 		t.Fatalf("len(messages) = %v, expected 2", len(msgs))
 	}
 	expectedCommitMap := map[uint64]uint64{
-		2: min(vr.opLog.commitNum, vr.group.IndexOf(2).Ack),
-		3: min(vr.opLog.commitNum, vr.group.IndexOf(3).Ack),
+		2: min(vr.opLog.commitNum, vr.group.Replica(2).Ack),
+		3: min(vr.opLog.commitNum, vr.group.Replica(3).Ack),
 	}
 	for i, m := range msgs {
 		if m.Type != proto.Commit {
@@ -914,7 +914,7 @@ func TestPrimaryIncreaseNext(t *testing.T) {
 		vr.becomePrimary()
 		vr.group.Set(replicaB, test.offset, test.next)
 		vr.Call(requestMessage(replicaA, replicaA))
-		window := vr.group.IndexOf(replicaB)
+		window := vr.group.Replica(replicaB)
 		if window.Next != test.expNext {
 			t.Errorf("#%d next = %d, expected %d", i, window.Next, test.expNext)
 		}
@@ -971,8 +971,8 @@ func TestVRReplicas(t *testing.T) {
 			Store:             NewStore(),
 			AppliedNum:        0,
 		})
-		if !reflect.DeepEqual(r.group.Replicas(), test.expPeers) {
-			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.group.Replicas(), test.expPeers)
+		if !reflect.DeepEqual(r.group.ReplicaNums(), test.expPeers) {
+			t.Errorf("#%d: replicas = %+v, expected %+v", i, r.group.Members(), test.expPeers)
 		}
 	}
 }
@@ -988,10 +988,10 @@ func TestWindowDec(t *testing.T) {
 	})
 	r.becomeReplica()
 	r.becomePrimary()
-	r.group.IndexOf(replicaB).DelaySet(r.heartbeatTimeout*2)
+	r.group.Replica(replicaB).DelaySet(r.heartbeatTimeout*2)
 	r.Call(proto.Message{From: 1, To: 1, Type: proto.Heartbeat})
-	if r.group.IndexOf(replicaB).Delay != r.heartbeatTimeout*(2-1) {
-		t.Errorf("delay = %d, expected %d", r.group.IndexOf(2).Delay, r.heartbeatTimeout*(2-1))
+	if r.group.Replica(replicaB).Delay != r.heartbeatTimeout*(2-1) {
+		t.Errorf("delay = %d, expected %d", r.group.Replica(2).Delay, r.heartbeatTimeout*(2-1))
 	}
 }
 

@@ -1,15 +1,25 @@
 package group
 
-import "sort"
+import (
+	"sort"
+	"github.com/open-rsm/vr/group/progress"
+)
 
 type Group struct {
-	Progress
+	Windows  int
+	replicas map[uint64]*Replica
 }
 
-func New(replicas []uint64) *Group {
-	return &Group{
-		Progress: newProgress(replicas),
+func New(peers []uint64) *Group {
+	g := Group{replicas: make(map[uint64]*Replica)}
+	for _, peer := range peers {
+		g.replicas[peer] = newReplica()
 	}
+	return &g
+}
+
+func (g *Group) Members() int {
+	return len(g.replicas)
 }
 
 // This implies that each step of the protocol must be processed
@@ -20,7 +30,7 @@ func (g *Group) Smallest() int {
 }
 
 func (g *Group) Faulty() int {
-	return g.Progress.Windows()/2
+	return g.Members()/2
 }
 
 // the quorum of replicas that processes a particular step
@@ -34,10 +44,65 @@ func (g *Group) Quorum() int {
 	return g.Faulty() + 1
 }
 
+func (g *Group) Progresses() uint64s {
+	members := make(uint64s, 0, g.Members())
+	for i := range g.replicas {
+		members = append(members, g.replicas[i].progress())
+	}
+	return members
+}
+
 func (g *Group) Commit() uint64 {
-	nums := g.Progress.Progress()
+	nums := g.Progresses()
 	sort.Sort(sort.Reverse(nums))
 	return nums[g.Quorum()-1]
+}
+
+func (g *Group) Replicas() map[uint64]*Replica {
+	return g.replicas
+}
+
+func (g *Group) ReplicaNums() []uint64 {
+	nums := make([]uint64, 0, g.Members())
+	for num := range g.Replicas() {
+		nums = append(nums, num)
+	}
+	sort.Sort(uint64s(nums))
+	return nums
+}
+
+func (g *Group) Replica(i uint64) *Replica {
+	if r, ok := g.replicas[i]; ok {
+		return r
+	}
+	//TODO: panic?
+	return nil
+}
+
+func (g *Group) Exist(i uint64) bool {
+	if _, ok := g.replicas[i]; ok {
+		return true
+	}
+	return false
+}
+
+func (g *Group) Reset(opNum, replicaNum uint64) {
+	for num := range g.replicas {
+		g.replicas[num] = &Replica{
+			Progress: &progress.Progress{Next: opNum + 1},
+		}
+		if num == replicaNum {
+			g.replicas[num].Ack = opNum
+		}
+	}
+}
+
+func (g *Group) Set(num, offset, next uint64) {
+	g.replicas[num]	= &Replica{Progress: &progress.Progress{Next: next, Ack: offset}}
+}
+
+func (g *Group) Del(num uint64) {
+	delete(g.replicas, num)
 }
 
 func group(f int) int {

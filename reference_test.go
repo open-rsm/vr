@@ -41,7 +41,7 @@ func TestRoundRobinChosen(t *testing.T) {
 }
 
 // Proof: section 4.1
-// Replicas only process normal protocol messages containing
+// Members only process normal protocol messages containing
 // a view-number that matches the view-number they know.
 // If the sender is behind, the receiver routers the message.
 func TestSenderBehindDropsMessage(t *testing.T) {

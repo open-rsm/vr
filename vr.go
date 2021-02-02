@@ -149,7 +149,7 @@ func newVR(c *Config) *VR {
 	}
 	vr.becomeBackup(vr.ViewStamp, None)
 	var replicaList []string
-	for _, n := range vr.group.Replicas() {
+	for _, n := range vr.group.ReplicaNums() {
 		replicaList = append(replicaList, fmt.Sprintf("%x", n))
 	}
 	log.Printf("vr: new vr %x [nodes: [%s], view-number: %d, commit-number: %d, applied-number: %d, last-op-number: %d, last-view-number: %d]",
@@ -288,8 +288,8 @@ func (v *VR) send(m proto.Message) {
 }
 
 func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
-	window := v.group.IndexOf(to)
-	if window.NeedDelay() {
+	replica := v.group.Replica(to)
+	if replica.NeedDelay() {
 		return
 	}
 	m := proto.Message{
@@ -299,7 +299,7 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 	defer func() {
 		v.send(m)
 	}()
-	if v.tryAppliedState(window.Next) {
+	if v.tryAppliedState(replica.Next) {
 		m.Type = proto.PrepareAppliedState
 		state, err := v.opLog.appliedState()
 		if err != nil {
@@ -311,26 +311,26 @@ func (v *VR) sendAppend(to uint64, typ ...proto.MessageType) {
 		m.AppliedState = state
 		opNum, viewNum := state.Applied.ViewStamp.OpNum, state.Applied.ViewStamp.ViewNum
 		log.Printf("vr: %x [start op-number: %d, commit-number: %d] sent applied-number state[op-number: %d, view-number: %d] to %x [%s]",
-			v.replicaNum, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, window)
-		window.DelaySet(v.transitionTimeout)
+			v.replicaNum, v.opLog.startOpNum(), v.CommitNum, opNum, viewNum, to, replica)
+		replica.DelaySet(v.transitionTimeout)
 		return
 	}
 	if typ != nil {
 		m.Type = typ[0]
 	}
-	m.ViewStamp.OpNum = window.Next - 1
-	m.LogNum = v.opLog.viewNum(window.Next-1)
-	m.Entries = v.opLog.entries(window.Next)
+	m.ViewStamp.OpNum = replica.Next - 1
+	m.LogNum = v.opLog.viewNum(replica.Next-1)
+	m.Entries = v.opLog.entries(replica.Next)
 	m.CommitNum = v.opLog.commitNum
-	if n := len(m.Entries); window.Ack != 0 && n != 0 {
-		window.NiceUpdate(m.Entries[n-1].ViewStamp.OpNum)
-	} else if window.Ack == 0 {
-		window.DelaySet(v.heartbeatTimeout)
+	if n := len(m.Entries); replica.Ack != 0 && n != 0 {
+		replica.NiceUpdate(m.Entries[n-1].ViewStamp.OpNum)
+	} else if replica.Ack == 0 {
+		replica.DelaySet(v.heartbeatTimeout)
 	}
 }
 
 func (v *VR) sendHeartbeat(to uint64) {
-	commit := min(v.group.IndexOf(to).Ack, v.opLog.commitNum)
+	commit := min(v.group.Replica(to).Ack, v.opLog.commitNum)
 	v.send(proto.Message{
 		To:        to,
 		Type:      proto.Commit,
@@ -374,7 +374,7 @@ func (v *VR) raising() bool {
 }
 
 func (v *VR) broadcastAppend() {
-	for num := range v.group.List() {
+	for num := range v.group.Replicas() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -383,12 +383,12 @@ func (v *VR) broadcastAppend() {
 }
 
 func (v *VR) broadcastHeartbeat() {
-	for num := range v.group.List() {
+	for num := range v.group.Replicas() {
 		if num == v.replicaNum {
 			continue
 		}
 		v.sendHeartbeat(num)
-		v.group.IndexOf(num).DelayDec(v.heartbeatTimeout)
+		v.group.Replica(num).DelayDec(v.heartbeatTimeout)
 	}
 }
 
@@ -398,7 +398,7 @@ func change(v *VR) {
 		v.becomePrimary()
 		return
 	}
-	for num := range v.group.List() {
+	for num := range v.group.Replicas() {
 		if num == v.replicaNum {
 			continue
 		}
@@ -416,7 +416,7 @@ func startViewChange(v *VR, m *proto.Message) {
 	}
 	views := v.collect(num, view, StartViewChange)
 	if views == 1 && !v.take(v.replicaNum, Change) {
-		for num := range v.group.List() {
+		for num := range v.group.Replicas() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -434,9 +434,9 @@ func startViewChange(v *VR, m *proto.Message) {
 func doViewChange(v *VR, m *proto.Message) {
 	// If it is not the primary node, send a DO-VIEW-CHANGE message to the new
 	// primary node that has been pre-selected.
-	if num := v.selected(v.ViewStamp, v.group.Windows()); num != v.replicaNum {
+	if num := v.selected(v.ViewStamp, v.group.Members()); num != v.replicaNum {
 		log.Printf("vr: %x [oplog view-number: %d, op-number: %d] sent DO-VIEW-CHANGE request to %x at view-number %d, replicas: %d",
-				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.group.Windows())
+				v.replicaNum, v.opLog.lastViewNum(), v.opLog.lastOpNum(), num, v.ViewStamp.ViewNum, v.group.Members())
 		v.send(proto.Message{From: v.replicaNum, To: num, Type: proto.DoViewChange, ViewStamp: proto.ViewStamp{ViewNum:v.opLog.lastViewNum(),OpNum:v.opLog.lastOpNum()}})
 		return
 	} else {
@@ -449,7 +449,7 @@ func doViewChange(v *VR, m *proto.Message) {
 		num = m.From
 	}
 	if v.group.Quorum() == v.collect(num, view, DoViewChange) {
-		for num := range v.group.List() {
+		for num := range v.group.Replicas() {
 			if num == v.replicaNum {
 				continue
 			}
@@ -476,15 +476,15 @@ func callPrimary(v *VR, m proto.Message) {
 		v.appendEntry(m.Entries...)
 		v.broadcastAppend()
 	case proto.PrepareOk:
-		delay := v.group.IndexOf(m.From).NeedDelay()
-		v.group.IndexOf(m.From).Update(m.ViewStamp.OpNum)
+		delay := v.group.Replica(m.From).NeedDelay()
+		v.group.Replica(m.From).Update(m.ViewStamp.OpNum)
 		if v.tryCommit() {
 			v.broadcastAppend()
 		} else if delay {
 			v.sendAppend(m.From)
 		}
 	case proto.CommitOk:
-		if v.group.IndexOf(m.From).Ack < v.opLog.lastOpNum() {
+		if v.group.Replica(m.From).Ack < v.opLog.lastOpNum() {
 			v.sendAppend(m.From)
 		}
 	case proto.StartViewChange, proto.DoViewChange:
@@ -498,15 +498,15 @@ func callPrimary(v *VR, m proto.Message) {
 		// TODO: verify the source
 		log.Printf("vr: %x received recovery (last-op-number: %d) from %x for op-number %d to recovery response",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.group.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.group.IndexOf(m.From))
+		if v.group.Replica(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("vr: %x decreased replicas of %x to [%s]", v.replicaNum, m.From, v.group.Replica(m.From))
 			v.sendAppend(m.From, proto.RecoveryResponse)
 		}
 	case proto.GetState:
 		log.Printf("vr: %x received get state (last-op-number: %d) from %x for op-number %d to new state",
 			v.replicaNum, m.X, m.From, m.ViewStamp.OpNum)
-		if v.group.IndexOf(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
-			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.group.IndexOf(m.From))
+		if v.group.Replica(m.From).TryDecTo(m.ViewStamp.OpNum, m.Note) {
+			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.group.Replica(m.From))
 			v.sendAppend(m.From, proto.NewState)
 		}
 	case proto.EpochStarted:
@@ -589,7 +589,7 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 		entries[i].ViewStamp.OpNum = lo + uint64(i) + 1
 	}
 	v.opLog.append(entries...)
-	v.group.IndexOf(v.replicaNum).Update(v.opLog.lastOpNum())
+	v.group.Replica(v.replicaNum).Update(v.opLog.lastOpNum())
 	// TODO need check return value?
 	v.tryCommit()
 }
