@@ -373,12 +373,16 @@ func (v *VR) raising() bool {
 	return v.group.Exist(v.replicaNum)
 }
 
-func (v *VR) broadcastAppend() {
+func (v *VR) broadcastStartEpoch() {
+	v.broadcastAppend(proto.StartEpoch)
+}
+
+func (v *VR) broadcastAppend(mt ...proto.MessageType) {
 	for num := range v.group.Replicas() {
 		if num == v.replicaNum {
 			continue
 		}
-		v.sendAppend(num)
+		v.sendAppend(num, mt...)
 	}
 }
 
@@ -474,8 +478,13 @@ func callPrimary(v *VR, m proto.Message) {
 			log.Panicf("vr: %x called empty request", v.replicaNum)
 		}
 		v.appendEntry(m.Entries...)
-		v.broadcastAppend()
-	case proto.PrepareOk:
+		switch m.Entries[0].Type {
+		case proto.Configure:
+			v.broadcastStartEpoch()
+		default:
+			v.broadcastAppend()
+		}
+	case proto.PrepareOk, proto.EpochStarted:
 		delay := v.group.Replica(m.From).NeedDelay()
 		v.group.Replica(m.From).Update(m.ViewStamp.OpNum)
 		if v.tryCommit() {
@@ -509,8 +518,6 @@ func callPrimary(v *VR, m proto.Message) {
 			log.Printf("v: %x decreased replicas of %x to [%s], send new state", v.replicaNum, m.From, v.group.Replica(m.From))
 			v.sendAppend(m.From, proto.NewState)
 		}
-	case proto.EpochStarted:
-
 	}
 }
 
@@ -526,6 +533,10 @@ func callReplica(v *VR, m proto.Message) {
 	case proto.PrepareAppliedState:
 		v.becomeBackup(v.ViewStamp, m.From)
 		v.handleAppliedState(m)
+		v.status = Normal
+	case proto.StartEpoch:
+		v.becomeBackup(v.ViewStamp, m.From)
+		v.handleStartEpoch(m)
 		v.status = Normal
 	case proto.Commit:
 		v.becomeBackup(v.ViewStamp, m.From)
@@ -556,6 +567,9 @@ func callBackup(v *VR, m proto.Message) {
 	case proto.PrepareAppliedState:
 		v.pulse = 0
 		v.handleAppliedState(m)
+	case proto.StartEpoch:
+		v.pulse = 0
+		v.handleStartEpoch(m)
 	case proto.Commit:
 		v.pulse = 0
 		v.prim = m.From
@@ -578,7 +592,6 @@ func callBackup(v *VR, m proto.Message) {
 		v.pulse = 0
 		v.prim = m.From
 		v.handleAppend(m)
-	case proto.StartEpoch:
 	}
 }
 
@@ -595,7 +608,7 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 }
 
 func (v *VR) handleAppend(m proto.Message) {
-	msgLastOpNum, ok := v.opLog.tryAppend(m.ViewStamp.OpNum, m.LogNum, m.CommitNum, m.Entries...);
+	msgLastOpNum, ok := v.opLog.tryAppend(m.ViewStamp.OpNum, m.LogNum, m.CommitNum, m.Entries...)
 	if ok {
 		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, ViewStamp: proto.ViewStamp{OpNum: msgLastOpNum}})
 		return
@@ -605,7 +618,7 @@ func (v *VR) handleAppend(m proto.Message) {
 		log.Printf("vr: %x normal state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
 			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.GetState, ViewStamp: proto.ViewStamp{OpNum: m.ViewStamp.OpNum}, Note: v.opLog.lastOpNum()})
-	case Recovering:
+	case Recovering, Transitioning:
 		log.Printf("vr: %x recovering state [log-number: %d, op-number: %d] find [log-number: %d, op-number: %d] from %x",
 			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
 		v.send(proto.Message{To: m.From, Type: proto.Recovery, ViewStamp: proto.ViewStamp{OpNum: m.ViewStamp.OpNum}, X: v.seq, Note: v.opLog.lastOpNum()})
@@ -613,6 +626,15 @@ func (v *VR) handleAppend(m proto.Message) {
 		log.Printf("vr: %x [log-number: %d, op-number: %d] ignored prepare [log-number: %d, op-number: %d] from %x",
 			v.replicaNum, v.opLog.viewNum(m.ViewStamp.OpNum), m.ViewStamp.OpNum, m.LogNum, m.ViewStamp.OpNum, m.From)
 	}
+}
+
+func (v *VR) handleStartEpoch(m proto.Message) {
+	msgLastOpNum, ok := v.opLog.tryAppend(m.ViewStamp.OpNum, m.LogNum, m.CommitNum, m.Entries...)
+	if ok {
+		v.send(proto.Message{To: m.From, Type: proto.EpochStarted, ViewStamp: proto.ViewStamp{OpNum: msgLastOpNum}})
+		return
+	}
+	v.status = Transitioning
 }
 
 func (v *VR) handleAppliedState(m proto.Message) {
