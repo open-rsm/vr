@@ -215,7 +215,7 @@ func TestReplicaRestart(t *testing.T) {
 	bs := NewStore()
 	bs.SetHardState(hs)
 	bs.Append(entries)
-	n := RestartReplica(&Config{
+	n := RestartReplicator(&Config{
 		Num:               1,
 		Peers:             []uint64{1},
 		TransitionTimeout: 10,
@@ -238,7 +238,7 @@ func TestReplicaAdvance(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bs := NewStore()
-	r := StartReplica(&Config{
+	r := StartReplicator(&Config{
 		Num:               1,
 		Peers:             []uint64{1},
 		TransitionTimeout: 10,

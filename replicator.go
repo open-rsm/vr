@@ -25,29 +25,29 @@ type Replicator interface {
 	Membership(context.Context, proto.Configuration)
 	Propose(context.Context, []byte)
 	Reconfiguration(proto.Configuration) *proto.ConfigurationState
-	Tuple(...Option) <-chan Tuple
 	Status() Status
 	Stop()
+	Tuple(...Option) <-chan Tuple
 }
 
-func StartReplica(c *Config) Replicator {
-	rc := newReplica()
+func StartReplicator(c *Config) Replicator {
+	r := newReplica()
 	vr := newVR(c)
 	vr.becomeBackup(proto.ViewStamp{ViewNum:One}, None)
 	vr.opLog.commitNum = vr.opLog.lastOpNum()
 	vr.CommitNum = vr.opLog.commitNum
 	for _, num := range c.Peers {
-		vr.createReplicator(num)
+		vr.createReplica(num)
 	}
-	go rc.cycle(vr)
-	return rc
+	go r.cycle(vr)
+	return r
 }
 
-func RestartReplica(c *Config) Replicator {
-	rc := newReplica()
+func RestartReplicator(c *Config) Replicator {
+	r := newReplica()
 	vr := newVR(c)
-	go rc.cycle(vr)
-	return rc
+	go r.cycle(vr)
+	return r
 }
 
 type replica struct {
@@ -155,8 +155,8 @@ func (r *replica) cycle(vr *VR) {
 			advanceC = r.advanceC
 		case c := <-r.statusC:
 			c <- getStatus(vr)
-		case rc := <-r.configurationC:
-			r.handleConfiguration(rc)
+		case c := <-r.configurationC:
+			r.handleConfiguration(c, vr)
 		case <-r.clockC:
 			vr.clock()
 		case <-r.stopC:
@@ -205,7 +205,7 @@ func (r *replica) Membership(ctx context.Context, cfg proto.Configuration) {
 	if err != nil {
 		log.Fatal("vr.replica membership configure data marshal error ", err)
 	}
-	r.Call(ctx, proto.Message{Type: proto.StartEpoch, Entries: []proto.Entry{{Type:proto.Configure, Data: data}}})
+	r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Configure, Data: data}}})
 }
 
 func (r *replica) Propose(ctx context.Context, data []byte) {
@@ -236,8 +236,29 @@ func (r *replica) Reconfiguration(c proto.Configuration) *proto.ConfigurationSta
 	return &state
 }
 
-func (r *replica) handleConfiguration(c proto.Configuration) {
-
+func (r *replica) handleConfiguration(c proto.Configuration, vr *VR) {
+	if c.ReplicaNum == None {
+		select {
+		case r.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
+		case <-r.doneC:
+		}
+		return
+	}
+	switch c.Type {
+	case proto.AddReplica:
+		vr.createReplica(c.ReplicaNum)
+	case proto.DelReplica:
+		if c.ReplicaNum == vr.replicaNum {
+			r.requestC = nil
+		}
+		vr.destroyReplica(c.ReplicaNum)
+	default:
+		panic("unexpected configuration type")
+	}
+	select {
+	case r.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
+	case <-r.doneC:
+	}
 }
 
 func (r *replica) Status() Status {

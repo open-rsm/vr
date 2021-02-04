@@ -610,7 +610,12 @@ func (v *VR) appendEntry(entries ...proto.Entry) {
 func (v *VR) handleAppend(m proto.Message) {
 	msgLastOpNum, ok := v.opLog.tryAppend(m.ViewStamp.OpNum, m.LogNum, m.CommitNum, m.Entries...)
 	if ok {
-		v.send(proto.Message{To: m.From, Type: proto.PrepareOk, ViewStamp: proto.ViewStamp{OpNum: msgLastOpNum}})
+		t := proto.PrepareOk
+		if v.status == Transitioning {
+			t = proto.EpochStarted
+			v.status = Normal
+		}
+		v.send(proto.Message{To: m.From, Type: t, ViewStamp: proto.ViewStamp{OpNum: msgLastOpNum}})
 		return
 	}
 	switch v.status {
@@ -673,14 +678,14 @@ func (v *VR) initSelector(num int) {
 	loadSelector(&v.selected, num)
 }
 
-func (v *VR) createReplicator(num uint64) {
+func (v *VR) createReplica(num uint64) {
 	if v.group.Exist(num) {
 		return
 	}
 	v.group.Set(num,0, v.opLog.lastOpNum()+1)
 }
 
-func (v *VR) destroyReplicator(num uint64) {
+func (v *VR) destroyReplica(num uint64) {
 	v.group.Del(num)
 }
 
