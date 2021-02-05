@@ -9,7 +9,7 @@ import (
 
 var (
 	nilHardState = proto.HardState{}
-	ErrStopped   = errors.New("vr.replica: replicator stopped")
+	ErrStopped   = errors.New("vr.bus: replicator stopped")
 )
 
 type Option struct {
@@ -17,7 +17,7 @@ type Option struct {
 	Filter func()
 }
 
-type Replicator interface {
+type Bus interface {
 	Advance()
 	Change(ctx context.Context) error
 	Call(context.Context, proto.Message) error
@@ -30,8 +30,8 @@ type Replicator interface {
 	Tuple(...Option) <-chan Tuple
 }
 
-func StartReplicator(c *Config) Replicator {
-	r := newReplica()
+func Start(c *Config) Bus {
+	b := newBus()
 	vr := newVR(c)
 	vr.becomeBackup(proto.ViewStamp{ViewNum:One}, None)
 	vr.opLog.commitNum = vr.opLog.lastOpNum()
@@ -39,18 +39,18 @@ func StartReplicator(c *Config) Replicator {
 	for _, num := range c.Peers {
 		vr.createReplica(num)
 	}
-	go r.cycle(vr)
-	return r
+	go b.cycle(vr)
+	return b
 }
 
-func RestartReplicator(c *Config) Replicator {
-	r := newReplica()
+func Restart(c *Config) Bus {
+	b := newBus()
 	vr := newVR(c)
-	go r.cycle(vr)
-	return r
+	go b.cycle(vr)
+	return b
 }
 
-type replica struct {
+type bus struct {
 	requestC            chan proto.Message
 	receiveC            chan proto.Message
 	tupleC              chan Tuple
@@ -63,8 +63,8 @@ type replica struct {
 	statusC             chan chan Status
 }
 
-func newReplica() *replica {
-	return &replica{
+func newBus() *bus {
+	return &bus{
 		requestC:            make(chan proto.Message),
 		receiveC:            make(chan proto.Message),
 		tupleC:              make(chan Tuple),
@@ -78,7 +78,7 @@ func newReplica() *replica {
 	}
 }
 
-func (r *replica) cycle(vr *VR) {
+func (b *bus) cycle(vr *VR) {
 	var requestC chan proto.Message
 	var tupleC chan Tuple
 	var advanceC chan struct{}
@@ -96,13 +96,13 @@ func (r *replica) cycle(vr *VR) {
 		if prim != vr.prim {
 			if vr.existPrimary() {
 				if prim == None {
-					log.Printf("vr.replica: %x change primary %x at view-number %d", vr.replicaNum, vr.prim, vr.ViewStamp.ViewNum)
+					log.Printf("vr.bus: %x change primary %x at view-number %d", vr.replicaNum, vr.prim, vr.ViewStamp.ViewNum)
 				} else {
-					log.Printf("vr.replica: %x changed primary from %x to %x at view-number %d", vr.replicaNum, prim, vr.prim, vr.ViewStamp.ViewNum)
+					log.Printf("vr.bus: %x changed primary from %x to %x at view-number %d", vr.replicaNum, prim, vr.prim, vr.ViewStamp.ViewNum)
 				}
-				requestC = r.requestC
+				requestC = b.requestC
 			} else {
-				log.Printf("vr.replica: %x faulty primary %x at view-number %d", vr.replicaNum, prim, vr.ViewStamp.ViewNum)
+				log.Printf("vr.bus: %x faulty primary %x at view-number %d", vr.replicaNum, prim, vr.ViewStamp.ViewNum)
 				requestC = nil
 			}
 			prim = vr.prim
@@ -112,7 +112,7 @@ func (r *replica) cycle(vr *VR) {
 		} else {
 			tp = newTuple(vr, prevSoftState, prevHardState)
 			if tp.PreCheck() {
-				tupleC = r.tupleC
+				tupleC = b.tupleC
 			} else {
 				tupleC = nil
 			}
@@ -121,7 +121,7 @@ func (r *replica) cycle(vr *VR) {
 		case m := <-requestC:
 			m.From = vr.replicaNum
 			vr.Call(m)
-		case m := <-r.receiveC:
+		case m := <-b.receiveC:
 			if vr.group.Exist(m.From) || !IsReplyMessage(m) {
 				vr.Call(m)
 			}
@@ -152,67 +152,67 @@ func (r *replica) cycle(vr *VR) {
 				prevAppliedStateOpNum = tp.AppliedState.Applied.ViewStamp.OpNum
 			}
 			vr.messages = nil
-			advanceC = r.advanceC
-		case c := <-r.statusC:
+			advanceC = b.advanceC
+		case c := <-b.statusC:
 			c <- getStatus(vr)
-		case c := <-r.configurationC:
-			r.handleConfiguration(c, vr)
-		case <-r.clockC:
+		case c := <-b.configurationC:
+			b.handleConfiguration(c, vr)
+		case <-b.clockC:
 			vr.clock()
-		case <-r.stopC:
-			close(r.doneC)
+		case <-b.stopC:
+			close(b.doneC)
 			return
 		}
 	}
 }
 
-func (r *replica) Advance() {
+func (b *bus) Advance() {
 	select {
-	case r.advanceC <- struct{}{}:
-	case <-r.doneC:
+	case b.advanceC <- struct{}{}:
+	case <-b.doneC:
 	}
 }
 
-func (r *replica) Change(ctx context.Context) error {
-	return r.call(ctx, proto.Message{Type: proto.Change})
+func (b *bus) Change(ctx context.Context) error {
+	return b.call(ctx, proto.Message{Type: proto.Change})
 }
 
-func (r *replica) Call(ctx context.Context, m proto.Message) error {
+func (b *bus) Call(ctx context.Context, m proto.Message) error {
 	if IsIgnorableMessage(m) {
 		return nil
 	}
 	// TODO: notify the outside that the system is doing reconfiguration
-	return r.call(ctx, m)
+	return b.call(ctx, m)
 }
 
-func (r *replica) call(ctx context.Context, m proto.Message) error {
-	ch := r.receiveC
+func (b *bus) call(ctx context.Context, m proto.Message) error {
+	ch := b.receiveC
 	if m.Type == proto.Request {
-		ch = r.requestC
+		ch = b.requestC
 	}
 	select {
 	case ch <- m:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-r.doneC:
+	case <-b.doneC:
 		return ErrStopped
 	}
 }
 
-func (r *replica) Membership(ctx context.Context, cfg proto.Configuration) {
+func (b *bus) Membership(ctx context.Context, cfg proto.Configuration) {
 	data, err := cfg.Marshal()
 	if err != nil {
-		log.Fatal("vr.replica membership configure data marshal error ", err)
+		log.Fatal("vr.bus membership configure data marshal error ", err)
 	}
-	r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Configure, Data: data}}})
+	b.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Configure, Data: data}}})
 }
 
-func (r *replica) Propose(ctx context.Context, data []byte) {
-	r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Log, Data: data}}})
+func (b *bus) Propose(ctx context.Context, data []byte) {
+	b.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Type:proto.Log, Data: data}}})
 }
 
-func (r *replica) Tuple(opt ...Option) <-chan Tuple {
+func (b *bus) Tuple(opt ...Option) <-chan Tuple {
 	if opt != nil {
 		for _, this := range opt {
 			if f := this.Filter; f != nil {
@@ -220,27 +220,27 @@ func (r *replica) Tuple(opt ...Option) <-chan Tuple {
 			}
 		}
 	}
-	return r.tupleC
+	return b.tupleC
 }
 
-func (r *replica) Reconfiguration(c proto.Configuration) *proto.ConfigurationState {
+func (b *bus) Reconfiguration(c proto.Configuration) *proto.ConfigurationState {
 	var state proto.ConfigurationState
 	select {
-	case r.configurationC <- c:
-	case <-r.doneC:
+	case b.configurationC <- c:
+	case <-b.doneC:
 	}
 	select {
-	case state = <-r.configurationStateC:
-	case <-r.doneC:
+	case state = <-b.configurationStateC:
+	case <-b.doneC:
 	}
 	return &state
 }
 
-func (r *replica) handleConfiguration(c proto.Configuration, vr *VR) {
+func (b *bus) handleConfiguration(c proto.Configuration, vr *VR) {
 	if c.ReplicaNum == None {
 		select {
-		case r.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
-		case <-r.doneC:
+		case b.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
+		case <-b.doneC:
 		}
 		return
 	}
@@ -249,38 +249,38 @@ func (r *replica) handleConfiguration(c proto.Configuration, vr *VR) {
 		vr.createReplica(c.ReplicaNum)
 	case proto.DelReplica:
 		if c.ReplicaNum == vr.replicaNum {
-			r.requestC = nil
+			b.requestC = nil
 		}
 		vr.destroyReplica(c.ReplicaNum)
 	default:
 		panic("unexpected configuration type")
 	}
 	select {
-	case r.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
-	case <-r.doneC:
+	case b.configurationStateC <- proto.ConfigurationState{Configuration: vr.group.ReplicaNums()}:
+	case <-b.doneC:
 	}
 }
 
-func (r *replica) Status() Status {
+func (b *bus) Status() Status {
 	c := make(chan Status)
-	r.statusC <- c
+	b.statusC <- c
 	return <-c
 }
 
-func (r *replica) Clock() {
+func (b *bus) Clock() {
 	select {
-	case r.clockC <- struct{}{}:
-	case <-r.doneC:
+	case b.clockC <- struct{}{}:
+	case <-b.doneC:
 	}
 }
 
-func (r *replica) Stop() {
+func (b *bus) Stop() {
 	select {
-	case r.stopC <- struct{}{}:
-	case <-r.doneC:
+	case b.stopC <- struct{}{}:
+	case <-b.doneC:
 		return
 	}
-	<-r.doneC
+	<-b.doneC
 }
 
 type SoftState struct {

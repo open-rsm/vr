@@ -18,7 +18,7 @@ const (
 
 const noLimit = math.MaxUint64
 
-// status type represents the current status of a replica in a cluster.
+// status type represents the current status of a bus in a cluster.
 type status uint64
 
 // status code
@@ -32,7 +32,7 @@ const (
 // status name
 var statusName = [...]string{"Normal", "ViewChange", "Recovering", "Transitioning"}
 
-// role type represents the current role of a replica in a cluster.
+// role type represents the current role of a bus in a cluster.
 type role uint64
 
 // role code
@@ -54,7 +54,7 @@ const (
 
 // view stamped replication configure
 type Config struct {
-	Num               uint64         // replica number, from 1 start
+	Num               uint64         // bus number, from 1 start
 	Peers             []uint64       // all the nodes in a replication group, include self
 	Store             *Store         // state machine storage models
 	TransitionTimeout time.Duration  // maximum processing time (ms) for primary
@@ -66,7 +66,7 @@ type Config struct {
 // configure check
 func (c *Config) validate() error {
 	if c.Num < 0 || c.Num == None {
-		return fmt.Errorf("vr: replica number cannot be zero or a number smaller than zero")
+		return fmt.Errorf("vr: bus number cannot be zero or a number smaller than zero")
 	}
 	if c.Store == nil {
 		return fmt.Errorf("vr: store is not initialized in config")
@@ -104,12 +104,12 @@ type VR struct {
 	// The key state of the replication group that has landed
 	proto.HardState
 
-	replicaNum uint64             // replica number, from 1 start
+	replicaNum uint64             // bus number, from 1 start
 	opLog      *opLog             // used to manage operation logs
 	group      *group.Group       // control and manage the current synchronization replicas
 	status     status             // record the current replication group status
-	role       role               // mark the current replica role
-	views      [3]map[uint64]bool // count the views of each replica during the view change process
+	role       role               // mark the current bus role
+	views      [3]map[uint64]bool // count the views of each bus during the view change process
 	messages   []proto.Message    // temporarily store messages that need to be sent
 	prim       uint64             // who is the primary ?
 	pulse      int                // occurrence frequency
@@ -173,14 +173,14 @@ func (v *VR) becomePrimary() {
 
 func (v *VR) becomeReplica() {
 	if v.role == Primary {
-		panic("vr: invalid transition [primary to replica]")
+		panic("vr: invalid transition [primary to bus]")
 	}
 	v.call = callReplica
 	v.clock = v.clockTransition
 	v.reset(v.ViewStamp.ViewNum + 1)
 	v.role = Replica
 	v.status = ViewChange
-	log.Printf("vr: %x became replica at view-number %d", v.replicaNum, v.ViewStamp.ViewNum)
+	log.Printf("vr: %x became bus at view-number %d", v.replicaNum, v.ViewStamp.ViewNum)
 }
 
 func (v *VR) becomeBackup(vs proto.ViewStamp, prim uint64) {
@@ -524,7 +524,7 @@ func callPrimary(v *VR, m proto.Message) {
 func callReplica(v *VR, m proto.Message) {
 	switch m.Type {
 	case proto.Request:
-		log.Printf("vr: %x no primary (replica) at view-number %d; dropping request", v.replicaNum, v.ViewStamp.ViewNum)
+		log.Printf("vr: %x no primary (bus) at view-number %d; dropping request", v.replicaNum, v.ViewStamp.ViewNum)
 		return
 	case proto.Prepare:
 		v.becomeBackup(v.ViewStamp, m.From)

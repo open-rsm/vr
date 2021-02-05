@@ -13,7 +13,7 @@ func TestSameInitialState(t *testing.T) {
 }
 
 // Proof: section 3
-// VR uses a primary replica to order client requests; the
+// VR uses a primary bus to order client requests; the
 // other replicas are backups that simply accept the order
 // selected by the primary.
 func TestPrimaryDeterminesLogOrder(t *testing.T) {
@@ -30,10 +30,10 @@ func TestSelectNewPrimary(t *testing.T) {
 
 // Proof: section 4, figure 2
 // The replicas are numbered based on their IP addresses:
-// the replica with the smallest IP address is replica 1.
-// The primary is chosen round-robin, starting with replica 1,
+// the bus with the smallest IP address is bus 1.
+// The primary is chosen round-robin, starting with bus 1,
 // as the system moves to new views. The status indicates what
-// sub-protocol the replica is engaged in.
+// sub-protocol the bus is engaged in.
 func TestRoundRobinChosen(t *testing.T) {
 	if err := testRoundRobin(); err != nil {
 		t.Error(err)
@@ -52,7 +52,7 @@ func TestSenderBehindDropsMessage(t *testing.T) {
 }
 
 // Proof: section 4.1
-// If the sender is ahead, the replica performs a state
+// If the sender is ahead, the bus performs a state
 // transfer: it requests information it is missing from the
 // other replicas and uses this information to bring itself
 // up to date before processing the message.
@@ -178,7 +178,7 @@ func TestLogCommittedByReplicas(t *testing.T) {
 // Proof: section 4.2
 // Suppose an operation is still in the preparing stage and has not been
 // written to the majority opLog. At this time, a view change occurs. If
-// each replica in the new view has not received the op, the op will be
+// each bus in the new view has not received the op, the op will be
 // lost. There is no correctness problem.
 func TestLostPreparingLogInViewChange(t *testing.T) {
 
@@ -195,7 +195,7 @@ func TestOpNumberDuplicateProblem(t *testing.T) {
 }
 
 // Proof: section 4.3
-// When a replica recovers after a crash it cannot participate in request
+// When a bus recovers after a crash it cannot participate in request
 // processing and view changes until it has a state at least as recent as
 // when it failed. If it could participate sooner than this, the system can
 // fail.

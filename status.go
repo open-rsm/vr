@@ -13,7 +13,7 @@ type Status struct {
 	// persistent state
 	proto.HardState
 
-	Num        uint64            // current replica number
+	Num        uint64            // current bus number
 	CommitNum  uint64            // logs that have been committed
 	AppliedNum uint64            // track the status that has been applied
 	//Windows    map[uint64]window // peer's window control information, subject to primary

@@ -6,10 +6,10 @@ import (
 	"github.com/open-rsm/vr/proto"
 )
 
-func BenchmarkSingleReplica(b *testing.B) {
+func Benchmark(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := newReplica()
+	r := newBus()
 	s := NewStore()
 	vr := newVR(&Config{
 		Num:               1,

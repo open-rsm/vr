@@ -9,30 +9,30 @@ import (
 	"github.com/open-rsm/vr/proto"
 )
 
-func TestReplicaCall(t *testing.T) {
+func TestReplicatorCall(t *testing.T) {
 	for i, mtn := range proto.MessageType_name {
-		r := &replica{
+		b := &bus{
 			requestC: make(chan proto.Message, 1),
 			receiveC: make(chan proto.Message, 1),
 		}
 		mt := proto.MessageType(i)
-		r.Call(context.TODO(), proto.Message{Type: mt})
+		b.Call(context.TODO(), proto.Message{Type: mt})
 		if mt == proto.Request {
 			select {
-			case <-r.requestC:
+			case <-b.requestC:
 			default:
 				t.Errorf("%d: cannot receive %s on request chan", mt, mtn)
 			}
 		} else {
 			if mt == proto.Heartbeat || mt == proto.Change {
 				select {
-				case <-r.receiveC:
+				case <-b.receiveC:
 					t.Errorf("%d: step should ignore %s", mt, mtn)
 				default:
 				}
 			} else {
 				select {
-				case <-r.receiveC:
+				case <-b.receiveC:
 				default:
 					t.Errorf("%d: cannot receive %s on receive chan", mt, mtn)
 				}
@@ -41,14 +41,14 @@ func TestReplicaCall(t *testing.T) {
 	}
 }
 
-func TestReplicaCallNonblocking(t *testing.T) {
-	r := &replica{
+func TestReplicatorCallNonblocking(t *testing.T) {
+	b := &bus{
 		requestC: make(chan proto.Message),
 		doneC:    make(chan struct{}),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	stopFunc := func() {
-		close(r.doneC)
+		close(b.doneC)
 	}
 	cases := []struct {
 		unblock func()
@@ -60,7 +60,7 @@ func TestReplicaCallNonblocking(t *testing.T) {
 	for i, test := range cases {
 		errC := make(chan error, 1)
 		go func() {
-			err := r.Call(ctx, proto.Message{Type: proto.Request})
+			err := b.Call(ctx, proto.Message{Type: proto.Request})
 			errC <- err
 		}()
 		test.unblock()
@@ -73,8 +73,8 @@ func TestReplicaCallNonblocking(t *testing.T) {
 				ctx = context.TODO()
 			}
 			select {
-			case <-r.doneC:
-				r.doneC = make(chan struct{})
+			case <-b.doneC:
+				b.doneC = make(chan struct{})
 			default:
 			}
 		case <-time.After(time.Millisecond * 100):
@@ -83,12 +83,12 @@ func TestReplicaCallNonblocking(t *testing.T) {
 	}
 }
 
-func TestReplicaRequest(t *testing.T) {
+func TestReplicatorRequest(t *testing.T) {
 	msgs := []proto.Message{}
 	appendCall := func(r *VR, m proto.Message) {
 		msgs = append(msgs, m)
 	}
-	r := newReplica()
+	b := newBus()
 	store := NewStore()
 	vr := newVR(&Config{
 		Num:               1,
@@ -98,23 +98,23 @@ func TestReplicaRequest(t *testing.T) {
 		Store:             store,
 		AppliedNum:        0,
 	})
-	go r.cycle(vr)
-	r.Change(context.TODO())
+	go b.cycle(vr)
+	b.Change(context.TODO())
 	for {
-		f := <-r.Tuple()
+		f := <-b.Tuple()
 		store.Append(f.PersistentEntries)
 		if f.SoftState.Prim == vr.replicaNum {
 			vr.call = appendCall
-			r.Advance()
+			b.Advance()
 			break
 		}
-		r.Advance()
+		b.Advance()
 	}
-	r.Call(context.TODO(), proto.Message{
+	b.Call(context.TODO(), proto.Message{
 		Type:    proto.Request,
 		Entries: []proto.Entry{{Data: []byte("testdata")}}},
 	)
-	r.Stop()
+	b.Stop()
 	if len(msgs) != 1 {
 		t.Fatalf("len(messages) = %d, expected %d", len(msgs), 1)
 	}
@@ -126,8 +126,8 @@ func TestReplicaRequest(t *testing.T) {
 	}
 }
 
-func TestReplicaClock(t *testing.T) {
-	r := newReplica()
+func TestReplicatorClock(t *testing.T) {
+	b := newBus()
 	bs := NewStore()
 	vr := newVR(&Config{
 		Num:               1,
@@ -137,17 +137,17 @@ func TestReplicaClock(t *testing.T) {
 		Store:             bs,
 		AppliedNum:        0,
 	})
-	go r.cycle(vr)
+	go b.cycle(vr)
 	pulse := vr.pulse
-	r.Clock()
-	r.Stop()
+	b.Clock()
+	b.Stop()
 	if vr.pulse != pulse+1 {
 		t.Errorf("pulse = %d, expected %d", vr.pulse, pulse+1)
 	}
 }
 
-func TestReplicaStop(t *testing.T) {
-	r := newReplica()
+func TestReplicatorStop(t *testing.T) {
+	b := newBus()
 	bs := NewStore()
 	vr := newVR(&Config{
 		Num:               1,
@@ -160,13 +160,13 @@ func TestReplicaStop(t *testing.T) {
 	doneC := make(chan struct{})
 
 	go func() {
-		r.cycle(vr)
+		b.cycle(vr)
 		close(doneC)
 	}()
 
 	pulse := vr.pulse
-	r.Clock()
-	r.Stop()
+	b.Clock()
+	b.Stop()
 
 	select {
 	case <-doneC:
@@ -176,11 +176,11 @@ func TestReplicaStop(t *testing.T) {
 	if vr.pulse != pulse+1 {
 		t.Errorf("pulse = %d, expected %d", vr.pulse, pulse+1)
 	}
-	r.Clock()
+	b.Clock()
 	if vr.pulse != pulse+1 {
 		t.Errorf("pulse = %d, expected %d", vr.pulse, pulse+1)
 	}
-	r.Stop()
+	b.Stop()
 }
 
 func TestReadyPreCheck(t *testing.T) {
@@ -201,7 +201,7 @@ func TestReadyPreCheck(t *testing.T) {
 	}
 }
 
-func TestReplicaRestart(t *testing.T) {
+func TestReplicatorRestart(t *testing.T) {
 	entries := []proto.Entry{
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 1}},
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 2}, Data: []byte("foo")},
@@ -211,16 +211,15 @@ func TestReplicaRestart(t *testing.T) {
 		HardState:         hs,
 		ApplicableEntries: entries[:hs.CommitNum],
 	}
-
-	bs := NewStore()
-	bs.SetHardState(hs)
-	bs.Append(entries)
-	n := RestartReplicator(&Config{
+	s := NewStore()
+	s.SetHardState(hs)
+	s.Append(entries)
+	n := Restart(&Config{
 		Num:               1,
 		Peers:             []uint64{1},
 		TransitionTimeout: 10,
 		HeartbeatTimeout:  1,
-		Store:             bs,
+		Store:             s,
 		AppliedNum:        0,
 	})
 	if g := <-n.Tuple(); !reflect.DeepEqual(g, f) {
@@ -234,16 +233,16 @@ func TestReplicaRestart(t *testing.T) {
 	}
 }
 
-func TestReplicaAdvance(t *testing.T) {
+func TestReplicatorAdvance(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	bs := NewStore()
-	r := StartReplicator(&Config{
+	s := NewStore()
+	r := Start(&Config{
 		Num:               1,
 		Peers:             []uint64{1},
 		TransitionTimeout: 10,
 		HeartbeatTimeout:  1,
-		Store:             bs,
+		Store:             s,
 		AppliedNum:        0,
 	})
 	r.Change(ctx)
@@ -255,7 +254,7 @@ func TestReplicaAdvance(t *testing.T) {
 		t.Fatalf("unexpecteded ready before advance: %+v", f)
 	case <-time.After(time.Millisecond):
 	}
-	bs.Append(f.PersistentEntries)
+	s.Append(f.PersistentEntries)
 	r.Advance()
 	select {
 	case <-r.Tuple():

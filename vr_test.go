@@ -500,7 +500,7 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 		t.Fatalf("expecteded 1 message, got %d: %+v", len(msgs), msgs)
 	}
 	if msgs[0].Type != proto.Prepare || msgs[0].To != 2 {
-		t.Errorf("expecteded prepare to replica 2, got %s to %d", msgs[0].Type, msgs[0].To)
+		t.Errorf("expecteded prepare to bus 2, got %s to %d", msgs[0].Type, msgs[0].To)
 	}
 	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].ViewStamp.OpNum != 2 {
 		t.Errorf("expecteded to trigger entry 2, but got %v", msgs[0].Entries)
@@ -515,7 +515,7 @@ func TestMessagePrepareOkDelayReset(t *testing.T) {
 		t.Fatalf("expecteded 1 message, got %d: %+v", len(msgs), msgs)
 	}
 	if msgs[0].Type != proto.Prepare || msgs[0].To != 3 {
-		t.Errorf("expecteded message prepare to replica 3, got %s to %d", msgs[0].Type, msgs[0].To)
+		t.Errorf("expecteded message prepare to bus 3, got %s to %d", msgs[0].Type, msgs[0].To)
 	}
 	if len(msgs[0].Entries) != 1 || msgs[0].Entries[0].ViewStamp.OpNum != 2 {
 		t.Errorf("expecteded to trigger entry 2, but got %v", msgs[0].Entries)

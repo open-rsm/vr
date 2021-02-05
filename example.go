@@ -8,7 +8,7 @@ func saveStateToDisk(proto.HardState)  {}
 func saveEntriesToDisk([]proto.Entry) {}
 
 func ExampleReplicator() {
-	replicator := StartReplicator(&Config{
+	replicator := Start(&Config{
 		Num:               1,
 		Peers:             nil,
 		TransitionTimeout: 0,
