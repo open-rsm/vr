@@ -6,10 +6,10 @@ import (
 	"github.com/open-rsm/vr/proto"
 )
 
-func Benchmark(b *testing.B) {
+func Benchmark(tb *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := newBus()
+	b := newBus()
 	s := NewStore()
 	vr := newVR(&Config{
 		Num:               1,
@@ -19,17 +19,17 @@ func Benchmark(b *testing.B) {
 		Store:             s,
 		AppliedNum:        0,
 	})
-	go r.cycle(vr)
-	defer r.Stop()
-	r.Change(ctx)
-	for i := 0; i < b.N; i++ {
-		f := <-r.Tuple()
+	go b.cycle(vr)
+	defer b.Stop()
+	b.Change(ctx)
+	for i := 0; i < tb.N; i++ {
+		f := <-b.Tuple()
 		s.Append(f.PersistentEntries)
-		r.Advance()
-		r.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("testdata")}}})
+		b.Advance()
+		b.Call(ctx, proto.Message{Type: proto.Request, Entries: []proto.Entry{{Data: []byte("testdata")}}})
 	}
-	f := <-r.Tuple()
-	if f.HardState.CommitNum != uint64(b.N+1) {
-		b.Errorf("commit-number = %d, expected %d", f.HardState.CommitNum, b.N+1)
+	f := <-b.Tuple()
+	if f.HardState.CommitNum != uint64(tb.N+1) {
+		tb.Errorf("commit-number = %d, expected %d", f.HardState.CommitNum, tb.N+1)
 	}
 }
