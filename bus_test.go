@@ -9,7 +9,7 @@ import (
 	"github.com/open-rsm/vr/proto"
 )
 
-func TestReplicatorCall(t *testing.T) {
+func TestBusCall(t *testing.T) {
 	for i, mtn := range proto.MessageType_name {
 		b := &bus{
 			requestC: make(chan proto.Message, 1),
@@ -41,7 +41,7 @@ func TestReplicatorCall(t *testing.T) {
 	}
 }
 
-func TestReplicatorCallNonblocking(t *testing.T) {
+func TestBusCallNonblocking(t *testing.T) {
 	b := &bus{
 		requestC: make(chan proto.Message),
 		doneC:    make(chan struct{}),
@@ -83,7 +83,7 @@ func TestReplicatorCallNonblocking(t *testing.T) {
 	}
 }
 
-func TestReplicatorRequest(t *testing.T) {
+func TestBusRequest(t *testing.T) {
 	msgs := []proto.Message{}
 	appendCall := func(r *VR, m proto.Message) {
 		msgs = append(msgs, m)
@@ -126,7 +126,7 @@ func TestReplicatorRequest(t *testing.T) {
 	}
 }
 
-func TestReplicatorClock(t *testing.T) {
+func TestBusClock(t *testing.T) {
 	b := newBus()
 	bs := NewStore()
 	vr := newVR(&Config{
@@ -146,7 +146,7 @@ func TestReplicatorClock(t *testing.T) {
 	}
 }
 
-func TestReplicatorStop(t *testing.T) {
+func TestBusStop(t *testing.T) {
 	b := newBus()
 	bs := NewStore()
 	vr := newVR(&Config{
@@ -201,7 +201,7 @@ func TestReadyPreCheck(t *testing.T) {
 	}
 }
 
-func TestReplicatorRestart(t *testing.T) {
+func TestBusRestart(t *testing.T) {
 	entries := []proto.Entry{
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 1}},
 		{ViewStamp: proto.ViewStamp{ViewNum: 1, OpNum: 2}, Data: []byte("foo")},
@@ -233,7 +233,7 @@ func TestReplicatorRestart(t *testing.T) {
 	}
 }
 
-func TestReplicatorAdvance(t *testing.T) {
+func TestBusAdvance(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := NewStore()
